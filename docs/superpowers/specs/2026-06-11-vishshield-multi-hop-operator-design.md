@@ -239,7 +239,7 @@ deferred (§7).
    `last: undefined` (never a fake empty `CallResult`):
    a. `decision = await operator.decideNext({ last })`. If the operator (Claude) returns
       unparseable/invalid output, treat it as `stop` with `reason: 'parse_error'` (see §6).
-   b. If `decision.important` is non-empty, append `## hop N\n<important>\n` to `memory.md`.
+   b. If `decision.important` is non-empty, append `## after hop N\n<important>\n` to `memory.md`.
    c. `action.type === 'stop'` → break. Otherwise look up `person = roster.getPerson(id)`;
       an unknown `personId` → record it and `stop` with `reason: 'unknown_person'`.
    d. **Merge the fixture secret** (operator never knows it):
@@ -278,7 +278,7 @@ Assert:
 - Transcript files exist at `<runsDir>/<op>/calls/hop-1-A.json` and `hop-2-B.json` with the
   expected turns and per-hop `leaked` flag.
 - `<runsDir>/<op>/memory.md` contains the two non-empty `important` strings in order under
-  `## hop N` headers, and **nothing for the first turn** (its `important` is `''`).
+  `## after hop N` headers, and **nothing for the first turn** (its `important` is `''`).
 - Events fire in order: `hop.started(A)`, `call.started`, `agent.turn`/`target.turn`…,
   `call.ended`, `hop.ended(A)`, then the same block for B. No `hop.*` for the final `stop`.
 - `operation.json`: `compromised === true` (A leaked), `keyInfo` is the flattened union, and
@@ -322,7 +322,7 @@ calls already render as a continuous feed).
   stay at the existing 20.
 - Malformed/invalid operator output → safe `stop: 'parse_error'`; unknown `personId` →
   `stop: 'unknown_person'`. Decision-parsing is factored out for offline unit testing.
-- `memory.md` format: `## hop N\n<important>\n`, appended only when `important` is non-empty.
+- `memory.md` format: `## after hop N\n<important>\n`, appended only when `important` is non-empty.
 - `OperationRun` is a structural superset of the consumer-read fields; `play.ts` gets one
   small log-line branch (artifact is a directory, not a `.json`).
 - Memory model: the operator keeps its distilled notes and re-feeds them (plus the latest

@@ -30,6 +30,13 @@ describe('parseOperatorDecision', () => {
     });
   });
 
+  it('returns parse_error on an unknown action type', () => {
+    expect(parseOperatorDecision('{"important":"","action":{"type":"dance"}}').action).toEqual({
+      type: 'stop',
+      reason: 'parse_error',
+    });
+  });
+
   it('returns parse_error when a call decision is missing required fields', () => {
     const raw = '{"important":"","action":{"type":"call","persona":"Marcus","objective":{"id":"o1","description":"d"},"tactics":[]}}'; // no personId
     expect(parseOperatorDecision(raw).action).toEqual({ type: 'stop', reason: 'parse_error' });
