@@ -1,9 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { claudeArgs, CLAUDE_MODEL } from '../src/claude/runClaude.js';
+import { claudeArgs, CLAUDE_MODEL, ROLEPLAY_MODEL } from '../src/claude/runClaude.js';
 
 describe('claudeArgs', () => {
-  it('defaults the agent/victim Claudes to the haiku model', () => {
+  it('defaults the operator to the haiku model', () => {
     expect(CLAUDE_MODEL).toBe('haiku');
+  });
+
+  // Deliberately haiku, not a bigger model: sonnet/opus refuse to role-play either side of
+  // the vishing scenario, so the call never resolves. The knob exists for experimentation.
+  it('defaults the caller/victim role-players to the haiku model', () => {
+    expect(ROLEPLAY_MODEL).toBe('haiku');
+  });
+
+  it('pins the chosen role-play model even on a resumed turn', () => {
+    const args = claudeArgs({ systemPrompt: 'ignored', resume: 'sess-9', model: 'sonnet' });
+    expect(args[args.indexOf('--model') + 1]).toBe('sonnet');
+    expect(args).toContain('--resume');
   });
 
   it('owns (replaces) the system prompt and excludes dynamic sections on a first turn', () => {

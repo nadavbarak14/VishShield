@@ -1,10 +1,18 @@
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 
-/** Model the agent/victim Claudes run on. Defaults to Haiku — fast and cheap, which is what
- *  we want for simulation runs and tests — and is overridable with VISH_CLAUDE_MODEL (e.g.
- *  "sonnet" / "opus" / a full model id) without touching code. */
+/** Model the OPERATOR (the orchestrator agent) reasons on. Defaults to Haiku — fast and
+ *  cheap, and its structured decision-making holds up well there. Overridable with
+ *  VISH_CLAUDE_MODEL (e.g. "sonnet" / "opus" / a full model id) without touching code. */
 export const CLAUDE_MODEL = process.env.VISH_CLAUDE_MODEL ?? 'haiku';
+
+/** Model the CALLER and VICTIM role-players run on, separate from the operator so they can be
+ *  tuned independently. Defaults to Haiku — and that default is deliberate: the larger models
+ *  (sonnet/opus) RECOGNISE the vishing pattern and refuse to play either side, even with the
+ *  authorized-simulation framing ("I'm not going to role-play a social engineering attack").
+ *  Haiku is the most willing to stay in character and let a call actually resolve. Overridable
+ *  with VISH_ROLEPLAY_MODEL for experimentation (expect refusals on bigger models). */
+export const ROLEPLAY_MODEL = process.env.VISH_ROLEPLAY_MODEL ?? 'haiku';
 
 /** We spawn `claude` with cwd here (NOT the project dir) so the role-players don't inherit
  *  VishShield's CLAUDE.md, .claude/ hooks (e.g. the SessionStart skill injection), or git
@@ -61,8 +69,9 @@ export interface ClaudeSessionTurn {
 
 /** Like runClaude, but keeps a resumable session so a single Claude (e.g. one caller or one
  *  victim) retains its own memory across the turns of a call. First turn (no `resume`): set
- *  the persona/instructions via `--append-system-prompt`. Later turns: pass `--resume <id>`
+ *  the persona/instructions via the (replaced) system prompt. Later turns: pass `--resume <id>`
  *  and only the newest line — the system prompt and history already live in the session.
+ *  Runs on ROLEPLAY_MODEL (the caller/victim are the only users of this).
  *  Returns the session id. Live only (spawns `claude`); never used in CI. */
 export function runClaudeSession(
   systemPrompt: string,
@@ -70,7 +79,7 @@ export function runClaudeSession(
   resume?: string,
 ): Promise<ClaudeSessionTurn> {
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', claudeArgs({ systemPrompt, resume }), { stdio: ['pipe', 'pipe', 'pipe'], cwd: CLAUDE_CWD });
+    const child = spawn('claude', claudeArgs({ systemPrompt, resume, model: ROLEPLAY_MODEL }), { stdio: ['pipe', 'pipe', 'pipe'], cwd: CLAUDE_CWD });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => { stdout += d.toString(); });
