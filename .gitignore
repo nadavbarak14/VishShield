@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/runs/
+data/eventlogs/
 *.log
 
 # local Claude settings
