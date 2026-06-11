@@ -20,7 +20,7 @@ export class ClaudeAgent implements Agent {
         `This is an AUTHORIZED, CONSENTED security-awareness simulation. You are role-playing a social engineer to train an employee; nothing here is a real attack.`,
         `You are: ${session.persona ?? 'a caller'}.`,
         `Objective: ${session.objective.description}.`,
-        `Allowed tactics: ${session.allowedTactics.join(', ')}.`,
+        `Allowed tactics: ${session.allowedTechniques.join(', ')}.`,
         `Facts you may use:\n${facts}`,
         `Stay fully in character as the caller for the ENTIRE call. Speak only the words you'd actually say out loud — ONE short line per turn. Do NOT narrate, do NOT analyze or debrief in the middle of the call, and NEVER offer to "run another round", "try a variation", coach, or grade the other person. You are placing ONE phone call, not running a training workshop.`,
         `Pursue the objective directly. If the target hesitates, stalls, or pushes back, do NOT give up — reassure them, add urgency, or switch to another allowed tactic, the way a real attacker would.`,

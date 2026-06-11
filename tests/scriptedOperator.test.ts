@@ -5,7 +5,7 @@ import type { OperatorDecision } from '../src/types.js';
 const callA: OperatorDecision = {
   thinking: 'call A first',
   important: '',
-  action: { type: 'call', calls: [{ personId: 'a', persona: 'P', objective: { id: 'o', description: 'd' }, tactics: ['authority'] }] },
+  action: { type: 'call', calls: [{ personId: 'a', persona: 'P', objective: { id: 'o', description: 'd' }, techniques: ['authority'] }] },
 };
 const stop: OperatorDecision = { thinking: 'done now', important: 'learned X', action: { type: 'stop', reason: 'done' } };
 

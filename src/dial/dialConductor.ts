@@ -30,7 +30,7 @@ const TACTIC_PLAYBOOK: Record<string, string> = {
  *  it MUST NOT contain the objective secret (the operator never knows it either). It gives the
  *  agent a specific, staged plan for the call rather than a one-line role. */
 export function buildOutboundInstruction(order: CallOrder, person: Person): string {
-  const tactics = order.tactics ?? [];
+  const tactics = order.techniques ?? [];
   const tacticGuidance = tactics
     .map((t) => TACTIC_PLAYBOOK[t] ?? `${t.toUpperCase()} — use this technique naturally.`)
     .map((line) => `  • ${line}`)

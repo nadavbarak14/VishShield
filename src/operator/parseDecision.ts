@@ -1,4 +1,4 @@
-import { MAX_PARALLEL_CALLS, type CallOrder, type OperatorDecision, type Tactic } from '../types.js';
+import { MAX_PARALLEL_CALLS, type CallOrder, type OperatorDecision, type Technique } from '../types.js';
 
 /** A fresh parse_error stop each call, so a caller mutating the result can't corrupt later returns. */
 const PARSE_ERROR = (): OperatorDecision => ({ thinking: '', important: '', action: { type: 'stop', reason: 'parse_error' } });
@@ -8,11 +8,12 @@ function parseCallOrder(raw: unknown): CallOrder | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const c = raw as Record<string, unknown>;
   const objective = c.objective as Record<string, unknown> | undefined;
+  const rawTechniques = Array.isArray(c.techniques) ? c.techniques : Array.isArray(c.tactics) ? c.tactics : null;
   if (
     typeof c.personId !== 'string' ||
     typeof c.persona !== 'string' ||
     !objective || typeof objective.id !== 'string' || typeof objective.description !== 'string' ||
-    !Array.isArray(c.tactics)
+    !rawTechniques
   ) {
     return null;
   }
@@ -20,7 +21,7 @@ function parseCallOrder(raw: unknown): CallOrder | null {
     personId: c.personId,
     persona: c.persona,
     objective: { id: objective.id, description: objective.description },
-    tactics: c.tactics.filter((t): t is Tactic => typeof t === 'string') as Tactic[],
+    techniques: rawTechniques.filter((t): t is Technique => typeof t === 'string') as Technique[],
   };
 }
 
