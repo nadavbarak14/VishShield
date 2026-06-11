@@ -40,11 +40,19 @@ export async function runScenario(scenarioFile: string, bus: EventBus): Promise<
   }
 
   const kb = new MockKnowledgeBase(scenario.facts);
-  const agent = new ClaudeAgent();
   const targetPersona: string =
     scenario.targetPersona ??
     `${scenario.facts[scenario.targetId]?.find((f: any) => f.key === 'name')?.value ?? 'an employee'}, ${scenario.facts[scenario.targetId]?.find((f: any) => f.key === 'role')?.value ?? ''}`;
-  const target = new ClaudeTarget(targetPersona, scenario.objective.secret);
+
+  // Calls are MOCKED by default (deterministic, no live role-players); opt back into a live
+  // Claude call with "mockCalls": false in the scenario.
+  const useMock = scenario.mockCalls !== false;
+  const targetName: string =
+    scenario.facts?.[scenario.targetId]?.find((f: any) => f.key === 'name')?.value ?? scenario.targetId;
+  const agent = useMock ? new MockVoiceAgent() : new ClaudeAgent();
+  const target = useMock
+    ? new MockVoiceTarget({ name: targetName, secret: scenario.objective.secret })
+    : new ClaudeTarget(targetPersona, scenario.objective.secret);
 
   const runId = `${scenario.campaignId}-${Date.now()}`;
   const result = await runCampaign({
@@ -101,11 +109,12 @@ async function runOperationScenario(scenario: any, bus: EventBus): Promise<Opera
     fixtures[p.id] = { secret: p.secret, targetPersona: p.targetPersona };
   }
 
-  // Mock-call mode: the OPERATOR is the real Claude (sonnet) doing genuine thinking, but each
-  // call is a deterministic fixture instead of a live role-player — which sidesteps the
-  // safety refusals / out-of-character monologues the live victim/caller hit. The operator
-  // still decides who to call and why; the mock just returns a transcript + leak verdict.
-  const useMock = scenario.mockCalls === true;
+  // Mock-call mode (the DEFAULT): the OPERATOR is the real Claude (sonnet) doing genuine
+  // thinking, but each call is a deterministic fixture instead of a live role-player — which
+  // sidesteps the safety refusals / out-of-character monologues the live victim/caller hit.
+  // The operator still decides who to call and why; the mock just returns a transcript + leak
+  // verdict. Opt back into live role-player calls with "mockCalls": false in the scenario.
+  const useMock = scenario.mockCalls !== false;
   const mockMap: Record<string, MockPerson> = {};
   for (const p of scenario.roster) mockMap[p.id] = { name: p.name, secret: p.secret, hint: p.hint };
 
