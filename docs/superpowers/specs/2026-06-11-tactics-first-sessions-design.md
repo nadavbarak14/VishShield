@@ -166,9 +166,11 @@ Steps:
    `instructions`.
 3. Build the **operator guidance** (see §6) and resolve the preferred-target name
    from the roster.
-4. Pick operator backend (`VISH_OPERATOR_BACKEND`) and call backend
-   (`VISH_CALL_BACKEND`) using the **same** logic as `runOperationScenario`
-   (the Dial dry-run branch is copied verbatim).
+4. Construct the operator as **`new AiOperator(guidance, roster)`** — the new
+   session flow is **LLM-only** (Vercel AI SDK). It does **not** read
+   `VISH_OPERATOR_BACKEND` and does **not** use `ClaudeOperator`. Pick the call
+   backend (`VISH_CALL_BACKEND`) using the **same** logic as
+   `runOperationScenario` (the Dial dry-run branch is copied verbatim).
 5. Call `runOperation({ … operator, conductor, makeAgent, makeTarget, fixtures,
    roster, maxHops: MAX_SESSION_CALLS, stopOnGoal: true, … })`.
 
@@ -186,11 +188,17 @@ inspector read these.
 
 ### 5.1 Operator construction
 
-`AiOperator` / `ClaudeOperator` are constructed today as `new AiOperator(goal,
-roster)`. Their constructor signature is unchanged; `goal` now receives the
-**synthesized guidance string** from §6 instead of a scenario's `goal`. The
-preferred-target hint is appended into that same guidance string, so no operator
-constructor or `decideNext` signature changes are required.
+The session always uses `AiOperator`, constructed as `new AiOperator(guidance,
+roster)`. Its constructor signature is unchanged; the first arg (`goal`) now
+receives the **synthesized guidance string** from §6 instead of a scenario's
+`goal`. The preferred-target hint is appended into that same guidance string, so
+no operator constructor or `decideNext` signature changes are required.
+
+`ClaudeOperator` and the `VISH_OPERATOR_BACKEND` switch are **not used by the new
+flow** — we are standardizing the session path on the LLM operator. The
+`ClaudeOperator` class and the existing `runOperationScenario` backend branch are
+left in place (still referenced by the legacy scenario path and its tests); a
+follow-up may delete them, but that is out of scope here.
 
 ## 6. Operator guidance (replaces single goal line)
 
