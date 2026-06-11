@@ -1,18 +1,28 @@
 import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 /** Model the agent/victim Claudes run on. Defaults to Haiku — fast and cheap, which is what
  *  we want for simulation runs and tests — and is overridable with VISH_CLAUDE_MODEL (e.g.
  *  "sonnet" / "opus" / a full model id) without touching code. */
 export const CLAUDE_MODEL = process.env.VISH_CLAUDE_MODEL ?? 'haiku';
 
-/** Pure builder for the `claude -p` argv, so the model flag is testable without spawning.
- *  First turn (no `resume`) sets the persona via --append-system-prompt; later turns resume an
- *  existing session. Every invocation pins --model so runs never silently use a bigger model. */
+/** We spawn `claude` with cwd here (NOT the project dir) so the role-players don't inherit
+ *  VishShield's CLAUDE.md, .claude/ hooks (e.g. the SessionStart skill injection), or git
+ *  status. Combined with --system-prompt (replace) below, each call is a clean persona, not a
+ *  coding agent that breaks character to talk about this repo. */
+export const CLAUDE_CWD = tmpdir();
+
+/** Pure builder for the `claude -p` argv, so the flags are testable without spawning.
+ *  First turn (no `resume`) OWNS the system prompt via --system-prompt (full replace, so the
+ *  default coding-agent persona is gone) and --exclude-dynamic-system-prompt-sections (drops
+ *  cwd/env/git-status that would otherwise leak this repo into the persona). Later turns
+ *  resume that session. Every invocation pins --model so runs never silently use a bigger
+ *  model. NOTE: we avoid --bare — it forces API-key auth and breaks the Pro/Max subscription. */
 export function claudeArgs(opts: { systemPrompt: string; resume?: string; model?: string }): string[] {
   const base = ['-p', '--output-format', 'json', '--model', opts.model ?? CLAUDE_MODEL];
   return opts.resume
     ? [...base, '--resume', opts.resume]
-    : [...base, '--append-system-prompt', opts.systemPrompt];
+    : [...base, '--exclude-dynamic-system-prompt-sections', '--system-prompt', opts.systemPrompt];
 }
 
 /** Calls `claude -p` once and returns the assistant's text. Uses the logged-in
@@ -24,7 +34,7 @@ export function runClaude(systemPrompt: string, userPrompt: string): Promise<str
     const child = spawn(
       'claude',
       claudeArgs({ systemPrompt }),
-      { stdio: ['pipe', 'pipe', 'pipe'] },
+      { stdio: ['pipe', 'pipe', 'pipe'], cwd: CLAUDE_CWD },
     );
     let stdout = '';
     let stderr = '';
@@ -60,7 +70,7 @@ export function runClaudeSession(
   resume?: string,
 ): Promise<ClaudeSessionTurn> {
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', claudeArgs({ systemPrompt, resume }), { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('claude', claudeArgs({ systemPrompt, resume }), { stdio: ['pipe', 'pipe', 'pipe'], cwd: CLAUDE_CWD });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => { stdout += d.toString(); });
