@@ -389,7 +389,7 @@ var panels = { scenario: true, tree: true, exfil: true };
 var tacticsOff = {};       // visual sanctioned-tactics toggles
 var expandedOverride = {}; // call key -> bool
 var worker = null;         // selected worker id
-var overlay = null;        // 'map' | 'library' | 'session' | null
+var overlay = null;        // 'map' | 'session' | null
 var tacticsIndex = [];     // /api/tactics  [{id,name,summary}]
 var orgPublic = null;      // /api/org      {id,name,roster}
 var selTactics = {};       // id -> true (session picker selection)
@@ -870,23 +870,6 @@ function renderMapOverlay(m) {
   h += '</div><div class="maphint">⌁ red path = realized attack chain · click any node to open its dossier</div></div></div></div>';
   return h;
 }
-function renderLibraryOverlay() {
-  var curScn = runId ? runId.replace(/-\\d+$/, '') : null;
-  var h = '<div class="ovbk" data-act="closeoverlay"><div class="ovbox" data-stop="1">' +
-    '<div class="ovhead"><span style="font-size:15px;">🗂</span><span class="ttl">SCENARIO LIBRARY</span><div style="flex:1;"></div>' +
-    '<button class="ovclose" data-act="closeoverlay">✕</button></div><div class="libgrid">';
-  for (var i = 0; i < scenariosIndex.length; i++) {
-    var s = scenariosIndex[i], live = s.id === curScn;
-    h += '<div class="libcard' + (live ? ' live' : '') + '"><div class="top"><span class="dot"></span><span class="id">' + esc(s.id) + '</span>' +
-      '<span class="tag">' + (live ? 'LIVE' : 'READY') + '</span></div>' +
-      '<div class="gl">' + esc(s.goal || '') + '</div>' +
-      '<div class="meta"><span class="m">' + (s.maxHops || 1) + ' HOP' + ((s.maxHops || 1) === 1 ? '' : 'S') + '</span><span class="m">' + (s.nodes || 0) + ' NODE' + ((s.nodes || 0) === 1 ? '' : 'S') + '</span></div>' +
-      (live ? '<button class="libbtn" data-act="closeoverlay">● LOADED</button>'
-            : '<button class="libbtn" data-act="deploy" data-arg="' + esc(s.id) + '">DEPLOY ▸</button>') + '</div>';
-  }
-  h += '</div></div></div>';
-  return h;
-}
 function renderSessionOverlay() {
   var canStart = Object.keys(selTactics).some(function (k) { return selTactics[k]; });
   var h = '<div class="ovbk" data-act="closeoverlay"><div class="ovbox" data-stop="1" style="width:940px;max-width:94vw;">' +
@@ -942,9 +925,7 @@ function renderSessionMap() {
 function renderOverlay(m) {
   var host = $('overlayHost');
   if (!overlay || (overlay === 'map' && (!scn || !scn.roster.length))) { host.innerHTML = ''; return; }
-  host.innerHTML = overlay === 'map' ? renderMapOverlay(m)
-    : overlay === 'session' ? renderSessionOverlay()
-    : renderLibraryOverlay();
+  host.innerHTML = overlay === 'map' ? renderMapOverlay(m) : renderSessionOverlay();
 }
 
 // ── master render ───────────────────────────────────────────────────────────
@@ -982,7 +963,6 @@ document.addEventListener('click', function (e) {
     expandedOverride[arg] = !isExpanded(derive(events.length), arg);
   }
   else if (act === 'openrun') { connect(arg); return; }
-  else if (act === 'deploy') { deploy(arg); return; }
   else if (act === 'newsession') { newSession(); return; }
   else if (act === 'seltactic') { selTactics[arg] = !selTactics[arg]; }
   else if (act === 'preftarget') { prefTarget = (prefTarget === arg ? null : arg); }
@@ -1048,15 +1028,6 @@ function newSession() {
     overlay = 'session';
     loadIndex(render);
   });
-}
-function deploy(scenarioId) {
-  overlay = null; render();
-  fetch('/api/launch?scenario=' + encodeURIComponent(scenarioId))
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      if (d.error) { failedMsg = d.error; render(); return; }
-      loadIndex(function () { connect(d.id); });
-    });
 }
 function startSession() {
   var ids = Object.keys(selTactics).filter(function (k) { return selTactics[k]; });
