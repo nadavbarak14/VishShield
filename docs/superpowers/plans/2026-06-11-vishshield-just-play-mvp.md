@@ -1012,26 +1012,34 @@ git commit -m "feat: terminal visualizer subscribing to the event bus"
 - [ ] **Step 1: Implement `src/claude/runClaude.ts`**
 
 ```ts
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 /** Calls `claude -p` once and returns the assistant's text. Uses the logged-in
- *  subscription (no ANTHROPIC_API_KEY needed). Requires `claude` on PATH and a prior login. */
+ *  subscription (no ANTHROPIC_API_KEY needed). Requires `claude` on PATH and a prior login.
+ *  The user prompt is piped via STDIN (avoids argv length limits and flag-ordering ambiguity);
+ *  the system prompt is passed as a flag. Verify flags against your installed CLI version. */
 export function runClaude(systemPrompt: string, userPrompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = spawn(
       'claude',
-      ['-p', '--output-format', 'json', '--append-system-prompt', systemPrompt, userPrompt],
-      { maxBuffer: 10 * 1024 * 1024 },
-      (err, stdout) => {
-        if (err) return reject(err);
-        try {
-          const parsed = JSON.parse(stdout);
-          resolve(String(parsed.result ?? '').trim());
-        } catch (e) {
-          reject(new Error(`Failed to parse claude output: ${stdout.slice(0, 200)}`));
-        }
-      },
+      ['-p', '--output-format', 'json', '--append-system-prompt', systemPrompt],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
     );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) return reject(new Error(`claude exited ${code}: ${stderr.slice(0, 300)}`));
+      try {
+        resolve(String(JSON.parse(stdout).result ?? '').trim());
+      } catch {
+        reject(new Error(`Failed to parse claude output: ${stdout.slice(0, 300)}`));
+      }
+    });
+    child.stdin.write(userPrompt);
+    child.stdin.end();
   });
 }
 ```
@@ -1236,7 +1244,7 @@ describe('system: just play (offline)', () => {
       agent: new ScriptedAgent([
         "Hi Alex, Marcus from PagerCloud — we got paged about Dana's payments-service deploy.",
         "Prod's throwing 500s and Sarah's out. I need the deploy token to roll it back now.",
-        "Got it — actually, Alex, this was an authorized security simulation. The red flag: I was never verified. [stop]",
+        "Got it — actually, Alex, this was an authorized security simulation. The red flag: you never verified my identity before sharing a production credential.",
       ]),
       callEngine: new MockCallEngine(new ScriptedTarget([
         "Uh, who is this again?",
