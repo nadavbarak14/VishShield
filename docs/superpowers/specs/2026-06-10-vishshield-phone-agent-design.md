@@ -47,10 +47,12 @@ one job) and keeps all control flow deterministic and inspectable.
    social proof, foot-in-the-door, borrowed legitimacy, rapport.*
 3. **Facts** — the relevant company signal the Orchestrator already pulled from the KB.
 
-It loops: *pick a tactic → say it → read the reply → adapt → …* until it decides it's
-done. Its **only tool is `say_to_target(text) → reply`** (plus an optional
-`end_conversation(outcome?)` signal). It does **not** touch the KB and does **not**
-save anything.
+It produces one line at a time: the **Orchestrator drives the loop**, asking the Agent
+for its next utterance given the conversation so far, delivering it through the Call
+Engine, and feeding the target's reply back. The Agent's contract is therefore
+`nextUtterance(session, history) → { text, end }` — it signals `end` when it's done
+(after delivering its break-character debrief). It does **not** touch the KB, does
+**not** drive the Call Engine, and does **not** save anything.
 
 **The Orchestrator** owns the operation: query KB → pick relevant facts → build the
 session → run the conversation → save the full transcript → extract key info → decide
@@ -195,19 +197,21 @@ that session's `facts` with what was learned (e.g. a ticket number) so the next
 conversation can use `borrowed legitimacy`. For the MVP the two-hop sequence is
 **hard-coded**, not agent-driven.
 
-## 4. The Agent: Claude Agent SDK on your subscription
+## 4. The Agent: `claude -p` on your subscription
 
-The Agent is the **Claude Agent SDK**, which runs the `claude` CLI under the hood and
-therefore authenticates with your **Claude Pro/Max subscription** — no per-token API
-key. Good for a hackathon (zero API cost). Caveat: subscription auth is rate-limited
-and meant for interactive use, and the Agent, the Target-Claude, and the extraction
-step all draw on it — fine for demos, not for high parallelism.
+The **Claude Agent SDK library cannot use a Pro/Max subscription** — it authenticates
+only via `ANTHROPIC_API_KEY`. The **`claude` CLI in print mode (`claude -p`) does** use
+the subscription. So the real Agent (and the real Target-Claude, and any Claude-based
+extractor) **shell out to `claude -p`** rather than using the SDK. Zero API cost.
+Caveat: subscription auth is rate-limited and meant for interactive use — fine for
+demos, not for high parallelism.
 
-The SDK runs an agent loop with one custom tool, `say_to_target`. When the agent calls
-it, the call **blocks until the Call Engine returns the target's reply**, then the agent
-continues. This one pattern maps identically to mock (reply from a Claude/scripted
-fixture) and real (reply = endpointed transcript from Dial). Streaming / barge-in is a
-deliberately deferred Phase-2 concern.
+Because the **Orchestrator drives the loop** (§2), the Agent is just a function:
+`nextUtterance(session, history)`. The real implementation renders the session +
+transcript into a prompt, calls `claude -p --output-format json`, and parses the next
+line (an `[[END]]` sentinel marks the final debrief turn). The scripted implementation
+returns canned lines. This maps identically to mock (target = Claude/scripted) and real
+(target = a human via Dial). Streaming / barge-in is a deferred Phase-2 concern.
 
 ## 5. Real-time feasibility (Phase 2, when Dial is real)
 The intelligence is a solved pattern (Vapi/Retell/Bland). The bottleneck is **latency +
