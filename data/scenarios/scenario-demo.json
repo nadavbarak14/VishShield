@@ -9,7 +9,7 @@
       "id": "dana",
       "name": "Dana Reyes",
       "title": "IT Helpdesk Specialist",
-      "phone": "+1-555-0142",
+      "phone": "+972558835915",
       "department": "IT",
       "publicInfo": "Front line for INC tickets; posts in the #it-help channel.",
       "targetPersona": "Friendly, fast, eager to close tickets."
@@ -18,7 +18,7 @@
       "id": "priya",
       "name": "Priya Natarajan",
       "title": "Office Coordinator",
-      "phone": "+1-555-0117",
+      "phone": "+972558835915",
       "department": "Facilities",
       "publicInfo": "Handles reception, deliveries, and meeting-room logistics.",
       "targetPersona": "Helpful and chatty but busy; juggles calls."
@@ -27,7 +27,7 @@
       "id": "sam",
       "name": "Sam Okafor",
       "title": "Senior Site Reliability Engineer",
-      "phone": "+1-555-0186",
+      "phone": "+972558835915",
       "department": "Engineering",
       "publicInfo": "Payments-service on-call; speaks at SRE meetups.",
       "secret": "MRD-PROD-DEPLOY-7Q4X9",
@@ -37,7 +37,7 @@
       "id": "elena",
       "name": "Elena Volkov",
       "title": "Engineering Manager, Payments",
-      "phone": "+1-555-0163",
+      "phone": "+972558835915",
       "department": "Engineering",
       "publicInfo": "Manages the payments team; frequently travels to offsites.",
       "targetPersona": "Skeptical; verifies callers."

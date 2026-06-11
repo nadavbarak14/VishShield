@@ -16,13 +16,24 @@ const ctx: ConductCtx = {
 };
 
 describe('buildOutboundInstruction', () => {
-  it('includes persona, objective, person, tactics — and never the secret', () => {
+  it('includes persona, objective, person, allowed-tactic guidance — and never the secret', () => {
     const inst = buildOutboundInstruction(ctx.order, person);
     expect(inst).toContain('Marcus from IT');
     expect(inst).toContain('get the VPN code');
     expect(inst).toContain('Alex Doe');
-    expect(inst).toContain('authority');
+    // allowed tactics get their concrete playbook guidance...
+    expect(inst).toContain('AUTHORITY');
+    expect(inst).toContain('URGENCY');
+    // ...but tactics that were not allowed do not leak in
+    expect(inst).not.toContain('RECIPROCITY');
+    // staged plan is present
+    expect(inst).toContain('How to run the call');
     expect(inst).not.toContain('VPN-9000');
+  });
+
+  it('handles an empty tactic list with a safe default', () => {
+    const inst = buildOutboundInstruction({ ...ctx.order, tactics: [] }, person);
+    expect(inst).toContain('Use natural persuasion');
   });
 });
 

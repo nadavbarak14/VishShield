@@ -1,6 +1,8 @@
+import type { DialStatus } from './dialStatus.js';
+
 export interface DialCall {
   id: string;
-  status: string;
+  status: DialStatus;
   duration?: number;
   transcript?: string | null;
   [k: string]: unknown;
