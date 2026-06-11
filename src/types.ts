@@ -104,4 +104,6 @@ export interface OperationRun {
   hops: OperationHop[];
   keyInfo: Fact[];        // flattened across hops; read by play.ts + web
   compromised: boolean;   // any hop leaked; read by web verdict
+  tactics?: { id: string; name: string }[];   // session: selected blueprints (display)
+  preferredTargetId?: string;                  // session: soft-bias target, if any
 }
