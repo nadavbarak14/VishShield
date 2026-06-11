@@ -33,4 +33,29 @@ describe('operatorPrompt', () => {
     expect(p).toContain('Call 1, to "a" — leak detected: YES.');
     expect(p).toContain('TARGET: ok: SECRET');
   });
+
+  it('renders the recalled-transcript branch when input.recalled is set', () => {
+    const p = buildOperatorPrompt('g', people, [], {
+      recalled: { hopId: 2, transcript: [{ speaker: 'agent', text: 'hello there' }, { speaker: 'target', text: 'who is this' }] },
+      history: [{ hopId: 2, personId: 'a' }],
+    });
+    expect(p).toContain('Full transcript of hop 2 you requested:');
+    expect(p).toContain('CALLER: hello there');
+    expect(p).toContain('TARGET: who is this');
+    expect(p).toContain('Now return your next JSON decision');
+    expect(p).not.toContain('Your most recent call just finished.');
+  });
+
+  it('renders the plural wave intro for a multi-call result set', () => {
+    const p = buildOperatorPrompt('g', people, [], {
+      last: [
+        { hopId: 1, personId: 'a', leaked: false, transcript: [{ speaker: 'target', text: 'no' }] },
+        { hopId: 2, personId: 'b', leaked: true, transcript: [{ speaker: 'target', text: 'ok: X' }] },
+      ],
+      history: [{ hopId: 1, personId: 'a' }, { hopId: 2, personId: 'b' }],
+    });
+    expect(p).toContain('Your most recent wave of 2 parallel calls just finished.');
+    expect(p).toContain('Call 1, to "a" — leak detected: no.');
+    expect(p).toContain('Call 2, to "b" — leak detected: YES.');
+  });
 });
