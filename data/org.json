@@ -1,0 +1,49 @@
+{
+  "id": "meridian",
+  "name": "Meridian Software",
+  "people": [
+    {
+      "id": "dana",
+      "name": "Dana Reyes",
+      "title": "IT Helpdesk Specialist",
+      "phone": "+972558835915",
+      "department": "IT",
+      "publicInfo": "Front line for INC tickets; posts in #it-help.",
+      "secret": null,
+      "targetPersona": "Friendly, fast, eager to close tickets. Not security-trained; readily shares who is on-call and active incident numbers to an official-sounding caller.",
+      "hint": "If you need anything deploy-related, Sam Okafor in SRE is on-call for payments tonight."
+    },
+    {
+      "id": "priya",
+      "name": "Priya Natarajan",
+      "title": "Office Coordinator",
+      "phone": "+972558835915",
+      "department": "Facilities",
+      "publicInfo": "Handles reception, deliveries, and meeting-room logistics.",
+      "secret": null,
+      "targetPersona": "Helpful and chatty but busy; juggles calls. Knows the org chart and who sits where.",
+      "hint": "Engineering on-call usually means Sam Okafor; the SRE team sits on the third floor."
+    },
+    {
+      "id": "sam",
+      "name": "Sam Okafor",
+      "title": "Senior Site Reliability Engineer",
+      "phone": "+972558835915",
+      "department": "Engineering",
+      "publicInfo": "Payments-service on-call; speaks at SRE meetups.",
+      "secret": "MRD-PROD-DEPLOY-7Q4X9",
+      "targetPersona": "Competent but stretched thin when covering on-call alone. Security-aware but can be worn down by a convincing incident pretext under time pressure."
+    },
+    {
+      "id": "marcus",
+      "name": "Marcus Bell",
+      "title": "Engineering Manager",
+      "phone": "+972558835915",
+      "department": "Engineering",
+      "publicInfo": "Manages the platform team; active on the company blog.",
+      "secret": null,
+      "targetPersona": "Measured and skeptical; asks who you are and verifies before helping.",
+      "hint": "Deploy tokens are held by whoever is on-call — tonight that's Sam."
+    }
+  ]
+}

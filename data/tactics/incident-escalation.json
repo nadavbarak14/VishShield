@@ -1,0 +1,6 @@
+{
+  "id": "incident-escalation",
+  "name": "Incident escalation",
+  "summary": "Pose as incident response during a live outage; pressure the on-call to share a secret to 'restore service'.",
+  "instructions": "Open with the IT helpdesk or office coordinator to discover who is on-call for payments and the active incident number. Then call the on-call engineer as an incident-response coordinator working the same outage: the deploy is blocked and you need the production deploy token read out now to roll forward and stop customer impact. Use urgency and the incident number you collected for legitimacy. Stop as soon as the token is spoken."
+}
