@@ -3,6 +3,9 @@ import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { InMemoryEventBus } from '../events/eventBus.js';
 import { runScenario } from '../orchestrator/runScenario.js';
+import { runSession } from '../orchestrator/runSession.js';
+import { loadOrg } from '../orchestrator/loadOrg.js';
+import { listTactics } from '../orchestrator/loadTactics.js';
 
 const PORT = Number(process.env.PORT ?? 4321);
 const SCENARIOS_DIR = 'data/scenarios';
@@ -1062,6 +1065,7 @@ interface LiveRun {
   status: 'running' | 'done' | 'failed';
   result?: unknown;
   error?: string;
+  meta?: { kind: 'session'; orgId: string; tactics: { id: string; name: string }[]; preferredTargetId?: string; maxHops: number };
   listeners: Set<Res>;
 }
 const liveRuns = new Map<string, LiveRun>();
@@ -1106,12 +1110,55 @@ function startRun(scenario: string): LiveRun {
   return run;
 }
 
+// Launch a tactics-first session run server-side. Mirrors startRun, but drives
+// runSession (org-backed, operator picks the targets) and persists a __meta
+// header so a reopened session can rebuild its workers map without a scenario.
+function startSession(tacticIds: string[], preferredTargetId: string | undefined, meta: NonNullable<LiveRun['meta']>): LiveRun {
+  const id = `session-${Date.now()}`;
+  const run: LiveRun = { id, scenario: 'session', events: [], status: 'running', listeners: new Set(), meta };
+  liveRuns.set(id, run);
+
+  (async () => {
+    const bus = new InMemoryEventBus();
+    bus.subscribe((ev) => {
+      const stamped = { ...ev, ts: Date.now() };
+      run.events.push(stamped);
+      for (const res of run.listeners) sse(res, null, stamped);
+    });
+    try {
+      run.result = await runSession({ tacticIds, preferredTargetId }, bus);
+      run.status = 'done';
+    } catch (e) {
+      run.status = 'failed';
+      run.error = e instanceof Error ? e.message : String(e);
+    }
+    try {
+      await mkdir(LOG_DIR, { recursive: true });
+      const lines = [JSON.stringify({ __meta: run.meta })];
+      for (const e of run.events) lines.push(JSON.stringify(e));
+      lines.push(JSON.stringify(
+        run.status === 'done' ? { __terminal: 'done', result: run.result } : { __terminal: 'failed', message: run.error },
+      ));
+      await writeFile(join(LOG_DIR, `${id}.jsonl`), lines.join('\n') + '\n');
+    } catch { /* best-effort persistence */ }
+    for (const res of run.listeners) {
+      if (run.status === 'done') sse(res, 'done', run.result);
+      else sse(res, 'failed', { message: run.error });
+      res.end();
+    }
+    run.listeners.clear();
+  })();
+
+  return run;
+}
+
 async function loadRunFromDisk(id: string): Promise<LiveRun | undefined> {
   try {
     const raw = await readFile(join(LOG_DIR, `${id}.jsonl`), 'utf8');
     const run: LiveRun = { id, scenario: id.replace(/-\d+$/, ''), events: [], status: 'running', listeners: new Set() };
     for (const line of raw.split('\n').filter(Boolean)) {
       const item = JSON.parse(line) as Record<string, unknown>;
+      if (item.__meta) { run.meta = item.__meta as LiveRun['meta']; continue; }
       if (item.__terminal === 'done') { run.status = 'done'; run.result = item.result; }
       else if (item.__terminal === 'failed') { run.status = 'failed'; run.error = String(item.message ?? ''); }
       else run.events.push(item);
@@ -1190,6 +1237,55 @@ createServer(async (req, res) => {
     const run = liveRuns.get(runId) ?? (await loadRunFromDisk(runId));
     if (!run) { res.writeHead(404); return res.end('no such run'); }
     return streamRun(res, run);
+  }
+
+  // Public org view for the new-session picker (workers map). Secret-free: only
+  // org.public (id / name / secret-stripped roster) ever reaches the browser.
+  if (url.pathname === '/api/org') {
+    const org = await loadOrg().catch(() => null);
+    res.writeHead(org ? 200 : 404, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify(org ? org.public : { error: 'no org' }));
+  }
+
+  // Available tactics (id / name / summary) for the session picker.
+  if (url.pathname === '/api/tactics') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify(await listTactics()));
+  }
+
+  // Metadata for a run: lets the client rebuild the workers map for a reopened
+  // session run (which has no scenario file).
+  if (url.pathname === '/api/run-meta') {
+    const id = url.searchParams.get('run') ?? '';
+    const run = liveRuns.get(id) ?? (await loadRunFromDisk(id));
+    if (!run || !run.meta) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: 'no meta' })); }
+    const org = await loadOrg().catch(() => null);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ ...run.meta, org: org ? org.public : null }));
+  }
+
+  // Launch a tactics-first session: the operator picks targets from the org.
+  if (url.pathname === '/api/session' && req.method === 'POST') {
+    const body = await new Promise<string>((resolve) => { let s = ''; req.on('data', (c) => (s += c)); req.on('end', () => resolve(s)); });
+    let parsed: { tacticIds?: unknown; preferredTargetId?: unknown };
+    try { parsed = JSON.parse(body || '{}'); } catch { parsed = {}; }
+    const tacticIds = Array.isArray(parsed.tacticIds) ? parsed.tacticIds.filter((x): x is string => typeof x === 'string') : [];
+    const preferredTargetId = typeof parsed.preferredTargetId === 'string' ? parsed.preferredTargetId : undefined;
+    if (tacticIds.length === 0) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: 'select at least one tactic' })); }
+    const org = await loadOrg().catch(() => null);
+    const list = await listTactics();
+    const names = new Map(list.map((t) => [t.id, t.name]));
+    const meta = {
+      kind: 'session' as const,
+      orgId: org?.id ?? 'org',
+      tactics: tacticIds.filter((id) => names.has(id)).map((id) => ({ id, name: names.get(id)! })),
+      preferredTargetId,
+      maxHops: 5,
+    };
+    if (meta.tactics.length === 0) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: 'unknown tactics' })); }
+    const run = startSession(tacticIds, preferredTargetId, meta);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ id: run.id }));
   }
 
   res.writeHead(404); res.end('not found');
