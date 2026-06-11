@@ -35,7 +35,8 @@ export type ConversationEvent =
   | { type: 'target.turn'; conversationId: string; text: string }
   | { type: 'call.ended'; conversationId: string; reason: Conversation['endedReason'] }
   | { type: 'hop.started'; operationId: string; hopId: number; personId: string; name: string; title: string }
-  | { type: 'hop.ended'; operationId: string; hopId: number; personId: string; leaked: boolean };
+  | { type: 'hop.ended'; operationId: string; hopId: number; personId: string; leaked: boolean }
+  | { type: 'operator.decision'; operationId: string; seq: number; important: string; action: OperatorDecision['action'] };
 
 /** Public profile of a person in the roster. The attacker side sees ONLY this — never a secret. */
 export interface Person {

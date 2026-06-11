@@ -9,7 +9,7 @@ import type { KeyInfoExtractor } from '../extract/keyInfoExtractor.js';
 import type { EventBus } from '../events/eventBus.js';
 import type { Operator } from '../operator/operator.js';
 import type { PeopleKnowledgeBase } from '../knowledge/rosterKnowledgeBase.js';
-import type { CallResult, Fact, Objective, OperationHop, OperationRun } from '../types.js';
+import type { CallResult, Fact, Objective, OperationHop, OperationRun, OperatorDecision } from '../types.js';
 import { MockCallEngine } from '../callEngine/mockCallEngine.js';
 import { runCampaign } from './runCampaign.js';
 
@@ -44,14 +44,19 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
   let last: CallResult | undefined;
   let completed = 0;
   let stopped = false;
+  let seq = 0;
 
   const MAX_RECALLS = 3;
   const historyOf = () => hops.map((h) => ({ hopId: h.hopId, personId: h.personId }));
+  const emitDecision = (d: OperatorDecision) =>
+    args.bus.emit({ type: 'operator.decision', operationId: args.operationId, seq: seq++, important: d.important, action: d.action });
 
   for (let attempt = 0; attempt < maxHops; attempt++) {
     // Ask the operator. It may first `recall` past transcripts (bounded) before committing
-    // to a call/stop — a recall places no call and counts no hop.
+    // to a call/stop — a recall places no call and counts no hop. Every decision is emitted
+    // so the UI can show the operator's reasoning + how it handled each call's result.
     let decision = await args.operator.decideNext({ last, history: historyOf() });
+    emitDecision(decision);
     if (decision.important) await appendFile(memoryFile, `## after hop ${completed}\n${decision.important}\n`);
 
     let recalls = 0;
@@ -64,6 +69,7 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
         recalled: { hopId: recall.hopId, transcript: found?.transcript ?? [] },
         history: historyOf(),
       });
+      emitDecision(decision);
       if (decision.important) await appendFile(memoryFile, `## after hop ${completed}\n${decision.important}\n`);
     }
 

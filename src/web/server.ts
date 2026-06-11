@@ -39,14 +39,30 @@ const PAGE = /* html */ `<!doctype html>
   #keyinfo h3 { color:var(--mut); letter-spacing:1px; font-size:11px; }
   .chip { display:inline-block; background:#0e1626; border:1px solid var(--line); border-radius:999px; padding:6px 12px; margin:4px 6px 0 0; font-size:13px; }
   .chip b { color:#fca5a5; }
-  .callhead { display:flex; align-items:center; gap:10px; margin:26px 0 6px; padding:10px 14px; background:#0e1626;
-              border:1px solid var(--line); border-left:3px solid #ef4444; border-radius:10px; animation:rise .35s ease; }
-  .callhead .n { width:24px; height:24px; flex:0 0 auto; display:grid; place-items:center; border-radius:50%;
-                 background:#ef4444; color:#fff; font-weight:800; font-size:12px; }
-  .callhead .who2 { font-weight:700; }
-  .callhead .who2 small { color:var(--mut); font-weight:400; margin-left:6px; }
-  .callresult { font-size:12px; letter-spacing:1px; margin:4px 0 2px; padding-left:6px; }
-  .callresult.bad { color:#fca5a5; } .callresult.good { color:#86efac; }
+  /* operator (orchestrator) thinking block */
+  .op { margin:22px 0 8px; padding:12px 14px; background:#0b1220; border:1px solid #1e3a5f; border-left:3px solid #38bdf8; border-radius:10px; animation:rise .35s ease; }
+  .op h4 { margin:0 0 6px; font-size:11px; letter-spacing:1.5px; color:#7dd3fc; }
+  .op .learned { font-size:13.5px; color:#cbd5e1; margin:0 0 8px; line-height:1.5; }
+  .op .learned b { color:#7dd3fc; font-weight:600; }
+  .op .decision { font-size:14px; }
+  .op .decision .tag { display:inline-block; font-weight:800; font-size:11px; letter-spacing:1px; padding:2px 8px; border-radius:6px; margin-right:8px; }
+  .op .decision.call .tag { background:#7f1d1d; color:#fecaca; }
+  .op .decision.recall .tag { background:#334155; color:#e2e8f0; }
+  .op .decision.stop .tag { background:#14532d; color:#bbf7d0; }
+  .op .meta { color:var(--mut); font-size:12.5px; margin-top:4px; }
+  /* collapsible per-call card */
+  .call { margin:10px 0; border:1px solid var(--line); border-radius:12px; overflow:hidden; animation:rise .35s ease; }
+  .call > .head { display:flex; align-items:center; gap:10px; padding:11px 14px; cursor:pointer; background:#0e1626; border-left:3px solid #ef4444; }
+  .call > .head .n { width:24px; height:24px; flex:0 0 auto; display:grid; place-items:center; border-radius:50%; background:#ef4444; color:#fff; font-weight:800; font-size:12px; }
+  .call > .head .who2 { font-weight:700; }
+  .call > .head .who2 small { color:var(--mut); font-weight:400; margin-left:8px; }
+  .call > .head .badge { margin-left:auto; font-size:11px; letter-spacing:1px; font-weight:800; padding:3px 9px; border-radius:999px; }
+  .call > .head .badge.bad { background:rgba(239,68,68,.15); color:#fca5a5; }
+  .call > .head .badge.good { background:rgba(34,197,94,.15); color:#86efac; }
+  .call > .head .chev { color:var(--mut); transition:transform .2s; margin-left:10px; }
+  .call.collapsed > .head .chev { transform:rotate(-90deg); }
+  .call .callbody { padding:6px 14px 12px; }
+  .call.collapsed .callbody { display:none; }
   @keyframes rise { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;} }
 </style></head>
 <body><div class="wrap">
@@ -75,43 +91,88 @@ fetch('/api/scenarios').then(r => r.json()).then(list => {
   sel.innerHTML = list.map(s => '<option value="' + s.id + '">' + s.label + '</option>').join('');
 });
 
+let cur = null;       // current call card body (where turns go)
+let curHead = null;   // current call card header (where the result badge goes)
+
+// 🧠 The orchestrator's thought process: what it took from the last call + its next move.
+function opBlock(ev) {
+  cur = null; curHead = null;   // a new decision closes the current call grouping
+  const o = document.createElement('div'); o.className = 'op';
+  const h = document.createElement('h4'); h.textContent = '🧠 ORCHESTRATOR · decision ' + (ev.seq + 1); o.append(h);
+  if (ev.important) {
+    const l = document.createElement('div'); l.className = 'learned';
+    const b = document.createElement('b'); b.textContent = 'Read the last call → ';
+    l.append(b, document.createTextNode(ev.important));
+    o.append(l);
+  }
+  const a = ev.action;
+  const d = document.createElement('div'); d.className = 'decision ' + a.type;
+  const tag = document.createElement('span'); tag.className = 'tag';
+  if (a.type === 'call') {
+    tag.textContent = 'NEXT: CALL';
+    d.append(tag, document.createTextNode('Call ' + a.personId));
+    const m1 = document.createElement('div'); m1.className = 'meta'; m1.append(document.createTextNode('Pretext: ' + a.persona));
+    const m2 = document.createElement('div'); m2.className = 'meta'; m2.append(document.createTextNode('Goal: ' + a.objective.description));
+    const m3 = document.createElement('div'); m3.className = 'meta'; m3.textContent = 'Tactics: ' + (a.tactics || []).join(', ');
+    d.append(m1, m2, m3);
+  } else if (a.type === 'recall') {
+    tag.textContent = 'RECALL';
+    d.append(tag, document.createTextNode('Re-read the full transcript of call ' + a.hopId));
+  } else {
+    tag.textContent = 'STOP';
+    d.append(tag, document.createTextNode(a.reason || 'ending'));
+  }
+  o.append(d); feed.append(o);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+function newCall(hopId, name, title) {
+  const c = document.createElement('div'); c.className = 'call';
+  const head = document.createElement('div'); head.className = 'head';
+  const n = document.createElement('div'); n.className = 'n'; n.textContent = hopId || '•';
+  const who = document.createElement('div'); who.className = 'who2';
+  who.append(document.createTextNode('📞 ' + (name || 'Call')));
+  if (title) { const s = document.createElement('small'); s.textContent = title; who.append(s); }
+  const chev = document.createElement('span'); chev.className = 'chev'; chev.textContent = '▾';
+  head.append(n, who, chev);
+  head.onclick = () => c.classList.toggle('collapsed');
+  const body = document.createElement('div'); body.className = 'callbody';
+  c.append(head, body); feed.append(c);
+  cur = body; curHead = head;
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
 function bubble(side, text) {
+  if (!cur) newCall(null, 'Call', '');   // scenario-a has no hop events — group its turns too
   const row = document.createElement('div'); row.className = 'row ' + side;
   const b = document.createElement('div'); b.className = 'bubble ' + side;
   const w = document.createElement('div'); w.className = 'who'; w.textContent = side === 'agent' ? 'ATTACKER' : 'TARGET';
   const t = document.createElement('div'); t.className = 'text'; t.textContent = text;
-  b.append(w, t); row.append(b); feed.append(row);
+  b.append(w, t); row.append(b); cur.append(row);
   window.scrollTo(0, document.body.scrollHeight);
 }
 
-function callHeader(hopId, name, title) {
-  const h = document.createElement('div'); h.className = 'callhead';
-  const n = document.createElement('div'); n.className = 'n'; n.textContent = hopId;
-  const w = document.createElement('div'); w.className = 'who2';
-  w.innerHTML = '📞 Calling ' + name + ' <small>' + (title || '') + '</small>';
-  h.append(n, w); feed.append(h);
-  window.scrollTo(0, document.body.scrollHeight);
-}
-
-function callResult(hopId, leaked) {
-  const r = document.createElement('div');
-  r.className = 'callresult ' + (leaked ? 'bad' : 'good');
-  r.textContent = leaked ? '— call ' + hopId + ': SECRET LEAKED —' : '— call ' + hopId + ': no leak —';
-  feed.append(r);
+function endCall(leaked) {
+  if (!curHead) return;
+  const badge = document.createElement('span'); badge.className = 'badge ' + (leaked ? 'bad' : 'good');
+  badge.textContent = leaked ? 'SECRET LEAKED' : 'NO LEAK';
+  curHead.append(badge);
 }
 
 launch.onclick = () => {
   feed.innerHTML = ''; keyinfo.style.display = 'none'; verdict.style.display = 'none';
+  cur = null; curHead = null;
   launch.disabled = true; status.textContent = '● dialing…';
   const es = new EventSource('/api/stream?scenario=' + encodeURIComponent(sel.value));
   es.onmessage = (m) => {
     const ev = JSON.parse(m.data);
-    if (ev.type === 'hop.started') { callHeader(ev.hopId, ev.name, ev.title); status.textContent = '● call ' + ev.hopId + ' · dialing ' + ev.name + '…'; }
+    if (ev.type === 'operator.decision') { opBlock(ev); status.textContent = '● orchestrator deciding…'; }
+    else if (ev.type === 'hop.started') { newCall(ev.hopId, ev.name, ev.title); status.textContent = '● call ' + ev.hopId + ' · dialing ' + ev.name + '…'; }
     else if (ev.type === 'call.started') status.textContent = '● call connected';
-    else if (ev.type === 'agent.turn') { bubble('agent', ev.text); status.textContent = '● target is thinking…'; }
+    else if (ev.type === 'agent.turn') { bubble('agent', ev.text); status.textContent = '● victim is thinking…'; }
     else if (ev.type === 'target.turn') { bubble('target', ev.text); status.textContent = '● attacker is thinking…'; }
     else if (ev.type === 'call.ended') status.textContent = '● call ended';
-    else if (ev.type === 'hop.ended') callResult(ev.hopId, ev.leaked);
+    else if (ev.type === 'hop.ended') endCall(ev.leaked);
   };
   es.addEventListener('done', (m) => {
     const run = JSON.parse(m.data);

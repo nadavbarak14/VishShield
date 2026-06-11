@@ -79,7 +79,11 @@ describe('runOperation (offline, scripted)', () => {
     const types = events.map((e) => e.type);
     expect(types.filter((t) => t === 'hop.started').length).toBe(2);
     expect(types.indexOf('hop.started')).toBeLessThan(types.indexOf('call.started'));
-    expect(types.at(-1)).toBe('hop.ended');
+    // every operator decision is emitted (call A, call B, stop); the first event is a
+    // decision (made before any call) and the last is the stop decision
+    expect(types.filter((t) => t === 'operator.decision').length).toBe(3);
+    expect(types[0]).toBe('operator.decision');
+    expect(types.at(-1)).toBe('operator.decision');
   });
 
   it('halts at maxHops when the operator never stops, and notes it in memory', async () => {
