@@ -355,7 +355,7 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function 
 function initials(name) { return String(name || '?').split(' ').map(function (w) { return w[0]; }).slice(0, 2).join('').toUpperCase(); }
 function fmtClock(sec) { var m = Math.floor(sec / 60), s = Math.floor(sec % 60); return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'); }
 
-var ALL_TACTICS = ['pretext', 'authority', 'urgency', 'social_proof', 'borrowed_legitimacy', 'foot_in_the_door', 'rapport'];
+var ALL_TECHNIQUES = ['pretext', 'authority', 'urgency', 'social_proof', 'borrowed_legitimacy', 'foot_in_the_door', 'rapport'];
 
 // worker status palette (idle / on call / breached / contacted-no-leak)
 var STAT = {
@@ -413,7 +413,7 @@ function derive(count) {
     if (!byKey[key]) {
       var p = scn && scn.roster.length ? scn.roster[0] : null;
       var c = { key: key, hopId: null, personId: p ? p.id : null, name: p ? p.name : 'Direct call', title: p ? p.title : '',
-        persona: scn && scn.persona ? scn.persona : '', objective: '', tactics: scn && scn.tactics ? scn.tactics : [],
+        persona: scn && scn.persona ? scn.persona : '', objective: '', techniques: scn && scn.tactics ? scn.tactics : [],
         turns: [], started: true, ended: false, endedReason: null, leaked: null, wave: 0, startTs: null, endTs: null };
       byKey[key] = c; calls.push(c); items.push({ kind: 'call', c: c });
     }
@@ -435,7 +435,7 @@ function derive(count) {
       var order = oi !== -1 ? pending.splice(oi, 1)[0] : null;
       var c = { key: 'h' + ev.hopId, hopId: ev.hopId, personId: ev.personId, name: ev.name, title: ev.title,
         persona: order ? order.persona : '', objective: order ? order.objective.description : '',
-        tactics: order ? order.tactics : [], turns: [], started: true, ended: false, endedReason: null,
+        techniques: order ? order.techniques : [], turns: [], started: true, ended: false, endedReason: null,
         leaked: null, wave: Math.max(waveIdx, 0), startTs: ev.ts || null, endTs: null };
       byKey[c.key] = c; calls.push(c); items.push({ kind: 'call', c: c });
       lastMacro = 'processing';
@@ -538,10 +538,10 @@ function renderScenarioPanel() {
       '<div style="flex:1;min-width:0;"><div class="id">' + esc(s.id) + '</div><div class="ds">' + esc(s.goal || '') + '</div></div>' +
       '<span class="tag">' + (live ? 'LIVE' : 'READY') + '</span></div>';
   }
-  h += '<div class="seclabel">SANCTIONED TACTICS</div><div class="chips">';
-  var sanctioned = scn && scn.tactics ? scn.tactics : ALL_TACTICS;
-  for (var t = 0; t < ALL_TACTICS.length; t++) {
-    var name = ALL_TACTICS[t];
+  h += '<div class="seclabel">SANCTIONED TECHNIQUES</div><div class="chips">';
+  var sanctioned = scn && scn.tactics ? scn.tactics : ALL_TECHNIQUES;
+  for (var t = 0; t < ALL_TECHNIQUES.length; t++) {
+    var name = ALL_TECHNIQUES[t];
     var on = sanctioned.indexOf(name) !== -1 && !tacticsOff[name];
     h += '<button class="tchip' + (on ? '' : ' off') + '" data-act="tactic" data-arg="' + name + '">' + name + '</button>';
   }
@@ -764,7 +764,7 @@ function renderInspector(m) {
   ];
   var inPlay = {};
   for (var ci = 0; ci < m.calls.length; ci++) {
-    for (var t = 0; t < (m.calls[ci].tactics || []).length; t++) inPlay[m.calls[ci].tactics[t]] = true;
+    for (var t = 0; t < (m.calls[ci].techniques || []).length; t++) inPlay[m.calls[ci].techniques[t]] = true;
   }
   var tacs = Object.keys(inPlay);
   var h = '<div class="insphead"><span style="font-size:13px;">▣</span><span class="ttl">OPERATION DOSSIER</span></div>' +
@@ -773,7 +773,7 @@ function renderInspector(m) {
   for (var s = 0; s < stats.length; s++) {
     h += '<div class="stat"><div class="v" style="color:' + stats[s].c + ';' + stats[s].g + '">' + esc(stats[s].v) + '</div><div class="k">' + stats[s].k + '</div></div>';
   }
-  h += '</div><div class="card" style="margin-bottom:0;"><div class="klabel" style="margin-bottom:8px;">TACTICS IN PLAY</div>';
+  h += '</div><div class="card" style="margin-bottom:0;"><div class="klabel" style="margin-bottom:8px;">TECHNIQUES IN PLAY</div>';
   h += tacs.length ? '<div>' + tacs.map(function (t2) { return '<span class="playchip">' + esc(t2) + '</span>'; }).join('') + '</div>'
     : '<div class="lootempty">None deployed yet.</div>';
   h += '<div class="insphint">▸ select a worker in the tree to inspect</div></div>';

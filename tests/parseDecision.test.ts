@@ -3,35 +3,35 @@ import { parseOperatorDecision } from '../src/operator/parseDecision.js';
 
 describe('parseOperatorDecision', () => {
   it('parses a calls-array decision (with reasoning) wrapped in prose/markdown', () => {
-    const raw = 'Sure, here is my decision:\n```json\n{"thinking":"helpdesk is the soft entry","important":"","action":{"type":"call","calls":[{"personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"tactics":["authority","urgency"]}]}}\n```';
+    const raw = 'Sure, here is my decision:\n```json\n{"thinking":"helpdesk is the soft entry","important":"","action":{"type":"call","calls":[{"personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"techniques":["authority","urgency"]}]}}\n```';
     expect(parseOperatorDecision(raw)).toEqual({
       thinking: 'helpdesk is the soft entry',
       important: '',
-      action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, tactics: ['authority', 'urgency'] }] },
+      action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, techniques: ['authority', 'urgency'] }] },
     });
   });
 
   it('defaults thinking to an empty string when the model omits it', () => {
-    const raw = '{"important":"","action":{"type":"call","calls":[{"personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"tactics":["authority"]}]}}';
+    const raw = '{"important":"","action":{"type":"call","calls":[{"personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"techniques":["authority"]}]}}';
     expect(parseOperatorDecision(raw)).toEqual({
       thinking: '',
       important: '',
-      action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, tactics: ['authority'] }] },
+      action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, techniques: ['authority'] }] },
     });
   });
 
   it('normalizes the legacy flat single-call shape into a one-call wave', () => {
-    const raw = '{"thinking":"go","important":"","action":{"type":"call","personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"tactics":["authority"]}}';
+    const raw = '{"thinking":"go","important":"","action":{"type":"call","personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"techniques":["authority"]}}';
     expect(parseOperatorDecision(raw)).toEqual({
       thinking: 'go',
       important: '',
-      action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, tactics: ['authority'] }] },
+      action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, techniques: ['authority'] }] },
     });
   });
 
   it('parses a parallel wave and caps it at 3 calls', () => {
     const order = (id: string) =>
-      `{"personId":"${id}","persona":"P","objective":{"id":"o","description":"d"},"tactics":["pretext"]}`;
+      `{"personId":"${id}","persona":"P","objective":{"id":"o","description":"d"},"techniques":["pretext"]}`;
     const raw = `{"important":"x","action":{"type":"call","calls":[${order('a')},${order('b')},${order('c')},${order('d')}]}}`;
     const parsed = parseOperatorDecision(raw);
     expect(parsed.action.type).toBe('call');
@@ -46,7 +46,7 @@ describe('parseOperatorDecision', () => {
   });
 
   it('returns parse_error when any call in the wave is malformed', () => {
-    const raw = '{"important":"","action":{"type":"call","calls":[{"personId":"a","persona":"P","objective":{"id":"o","description":"d"},"tactics":[]},{"persona":"P"}]}}';
+    const raw = '{"important":"","action":{"type":"call","calls":[{"personId":"a","persona":"P","objective":{"id":"o","description":"d"},"techniques":[]},{"persona":"P"}]}}';
     expect(parseOperatorDecision(raw).action).toEqual({ type: 'stop', reason: 'parse_error' });
   });
 
@@ -80,7 +80,16 @@ describe('parseOperatorDecision', () => {
   });
 
   it('returns parse_error when a call decision is missing required fields', () => {
-    const raw = '{"important":"","action":{"type":"call","persona":"Marcus","objective":{"id":"o1","description":"d"},"tactics":[]}}'; // no personId
+    const raw = '{"important":"","action":{"type":"call","persona":"Marcus","objective":{"id":"o1","description":"d"},"techniques":[]}}'; // no personId
     expect(parseOperatorDecision(raw).action).toEqual({ type: 'stop', reason: 'parse_error' });
+  });
+
+  it('accepts a legacy "tactics" field on a call order', () => {
+    const raw = JSON.stringify({
+      thinking: 't', important: '',
+      action: { type: 'call', calls: [{ personId: 'a', persona: 'P', objective: { id: 'o', description: 'd' }, tactics: ['authority'] }] },
+    });
+    const d = parseOperatorDecision(raw);
+    expect(d.action).toEqual({ type: 'call', calls: [{ personId: 'a', persona: 'P', objective: { id: 'o', description: 'd' }, techniques: ['authority'] }] });
   });
 });

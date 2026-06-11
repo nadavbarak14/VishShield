@@ -7,7 +7,7 @@ import type { Person, ConversationEvent } from '../src/types.js';
 
 const person: Person = { id: 'a', name: 'Alex Doe', title: 'Service Desk', phone: '+15551234', publicInfo: 'on LinkedIn' };
 const ctx: ConductCtx = {
-  order: { personId: 'a', persona: 'Marcus from IT', objective: { id: 'o1', description: 'get the VPN code' }, tactics: ['authority', 'urgency'] },
+  order: { personId: 'a', persona: 'Marcus from IT', objective: { id: 'o1', description: 'get the VPN code' }, techniques: ['authority', 'urgency'] },
   person,
   objective: { id: 'o1', description: 'get the VPN code', secret: 'VPN-9000' },
   hopId: 1,
@@ -32,7 +32,7 @@ describe('buildOutboundInstruction', () => {
   });
 
   it('handles an empty tactic list with a safe default', () => {
-    const inst = buildOutboundInstruction({ ...ctx.order, tactics: [] }, person);
+    const inst = buildOutboundInstruction({ ...ctx.order, techniques: [] }, person);
     expect(inst).toContain('Use natural persuasion');
   });
 });

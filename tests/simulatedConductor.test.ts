@@ -27,7 +27,7 @@ function conductor() {
 describe('SimulatedConductor', () => {
   it('runs a campaign and returns transcript + leak verdict', async () => {
     const res = await conductor().conduct({
-      order: { personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get token' }, tactics: ['authority'] },
+      order: { personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get token' }, techniques: ['authority'] },
       person: people[0],
       objective: { id: 'o1', description: 'get token', secret: 'SECRET-A' },
       hopId: 1,

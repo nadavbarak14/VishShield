@@ -7,7 +7,7 @@ const people: Person[] = [{ id: 'a', name: 'A', title: 'Desk', phone: '1' }];
 const callJson = JSON.stringify({
   thinking: 'start at the desk',
   important: '',
-  action: { type: 'call', calls: [{ personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get token' }, tactics: ['authority'] }] },
+  action: { type: 'call', calls: [{ personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get token' }, techniques: ['authority'] }] },
 });
 
 describe('AiOperator', () => {
@@ -19,8 +19,8 @@ describe('AiOperator', () => {
     expect(generate).toHaveBeenCalledOnce();
     const arg = generate.mock.calls[0][0];
     expect(arg.system).toContain('Reply with ONLY a JSON object');
-    expect(arg.prompt).toContain('Engagement goal: get the token');
-    expect(decision.action).toEqual({ type: 'call', calls: [{ personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get token' }, tactics: ['authority'] }] });
+    expect(arg.prompt).toContain('Engagement guidance:');
+    expect(decision.action).toEqual({ type: 'call', calls: [{ personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get token' }, techniques: ['authority'] }] });
   });
 
   it('accumulates `important` into notes, surfacing them in the next turn prompt', async () => {

@@ -5,7 +5,7 @@ import type { ConversationStore } from '../store/conversationStore.js';
 import type { KeyInfoStore } from '../store/keyInfoStore.js';
 import type { KeyInfoExtractor } from '../extract/keyInfoExtractor.js';
 import type { EventBus } from '../events/eventBus.js';
-import type { AgentSession, Conversation, Fact, Objective, Tactic } from '../types.js';
+import type { AgentSession, Conversation, Fact, Objective, Technique } from '../types.js';
 import { runConversation } from './runConversation.js';
 
 export interface RunCampaignArgs {
@@ -13,7 +13,7 @@ export interface RunCampaignArgs {
   campaignId: string;
   targetId: string;
   objective: Objective;
-  allowedTactics: Tactic[];
+  allowedTactics: Technique[];
   persona?: string;
   agent: Agent;
   callEngine: CallEngine;
@@ -30,7 +30,7 @@ export async function runCampaign(
   const facts = await args.kb.getContext(args.targetId);
   const session: AgentSession = {
     objective: args.objective,
-    allowedTactics: args.allowedTactics,
+    allowedTechniques: args.allowedTactics,
     facts,
     persona: args.persona,
   };

@@ -1,4 +1,4 @@
-export type Tactic =
+export type Technique =
   | 'pretext' | 'authority' | 'urgency' | 'social_proof'
   | 'foot_in_the_door' | 'borrowed_legitimacy' | 'rapport';
 
@@ -12,7 +12,7 @@ export interface Objective {
 
 export interface AgentSession {
   objective: Objective;
-  allowedTactics: Tactic[];
+  allowedTechniques: Technique[];
   facts: Fact[];         // selected by the Orchestrator from the Knowledge Base
   persona?: string;      // who the agent is pretending to be, e.g. "Marcus from the IR vendor"
 }
@@ -61,7 +61,7 @@ export interface CallOrder {
   personId: string;
   persona: string;
   objective: { id: string; description: string };
-  tactics: Tactic[];
+  techniques: Technique[];
 }
 
 /** Hard cap on how many calls a single decision may place in parallel. */
