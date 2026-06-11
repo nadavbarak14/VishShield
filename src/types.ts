@@ -33,4 +33,56 @@ export type ConversationEvent =
   | { type: 'call.started'; conversationId: string }
   | { type: 'agent.turn'; conversationId: string; text: string }
   | { type: 'target.turn'; conversationId: string; text: string }
-  | { type: 'call.ended'; conversationId: string; reason: Conversation['endedReason'] };
+  | { type: 'call.ended'; conversationId: string; reason: Conversation['endedReason'] }
+  | { type: 'hop.started'; operationId: string; hopId: number; personId: string }
+  | { type: 'hop.ended'; operationId: string; hopId: number; personId: string; leaked: boolean };
+
+/** Public profile of a person in the roster. The attacker side sees ONLY this — never a secret. */
+export interface Person {
+  id: string;
+  name: string;
+  title: string;
+  phone: string;
+  department?: string;
+  publicInfo?: string;
+}
+
+/** What the operator is handed after a call it ordered (undefined on the very first turn). */
+export interface CallResult {
+  personId: string;
+  transcript: Transcript;
+  leaked: boolean;
+}
+
+/** The operator's per-turn output: what to remember from the last call, plus the next action. */
+export type OperatorDecision = {
+  important: string;
+  action:
+    | {
+        type: 'call';
+        personId: string;
+        persona: string;
+        objective: { id: string; description: string };
+        tactics: Tactic[];
+      }
+    | { type: 'stop'; reason: string }
+    | { type: 'recall'; hopId: number };   // re-read a past call's full transcript on demand
+};
+
+export interface OperationHop {
+  hopId: number;
+  personId: string;
+  persona: string;
+  objective: Objective;
+  transcript: Transcript;
+  endedReason: string;
+  leaked: boolean;
+}
+
+export interface OperationRun {
+  id: string;
+  goal: string;
+  hops: OperationHop[];
+  keyInfo: Fact[];        // flattened across hops; read by play.ts + web
+  compromised: boolean;   // any hop leaked; read by web verdict
+}
