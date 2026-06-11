@@ -64,6 +64,11 @@ const PAGE = /* html */ `<!doctype html>
   .call.collapsed > .head .chev { transform:rotate(-90deg); }
   .call .callbody { padding:6px 14px 12px; }
   .call.collapsed .callbody { display:none; }
+  /* end-of-call marker inside a call card */
+  .callend { display:flex; align-items:center; gap:10px; margin:12px 2px 2px; color:var(--mut); font-size:11.5px; letter-spacing:1px; font-weight:700; text-transform:uppercase; }
+  .callend::before, .callend::after { content:""; flex:1; height:1px; background:var(--line); }
+  .callend.hangup { color:#fca5a5; }
+  .callend.hangup::before, .callend.hangup::after { background:rgba(239,68,68,.3); }
   @keyframes rise { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;} }
 </style></head>
 <body><div class="wrap">
@@ -161,6 +166,24 @@ function endCall(leaked) {
   curHead.append(badge);
 }
 
+// A persistent "call ended" divider drawn inside the call body, so a finished
+// call visibly stops instead of the transcript appearing to run on forever.
+function endCallMarker(reason) {
+  if (!cur) return;
+  const label = reason === 'target_hung_up' ? '☎ target hung up'
+    : reason === 'agent_ended' ? '☎ caller ended the call'
+    : reason === 'max_turns' ? '☎ call cut off (turn limit)'
+    : '☎ call ended';
+  const m = document.createElement('div');
+  m.className = 'callend' + (reason === 'target_hung_up' ? ' hangup' : '');
+  m.textContent = label;
+  cur.append(m);
+  // Close the body so any stray later turn opens a fresh card, but keep curHead:
+  // in multi-hop, hop.ended fires after call.ended and still needs it for the leak badge.
+  cur = null;
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
 const runsSel = document.getElementById('runs');
 let es = null;          // current EventSource
 let activeRun = null;   // current run id
@@ -171,7 +194,7 @@ function render(ev) {
   else if (ev.type === 'call.started') status.textContent = '● call connected';
   else if (ev.type === 'agent.turn') { bubble('agent', ev.text); status.textContent = '● victim is thinking…'; }
   else if (ev.type === 'target.turn') { bubble('target', ev.text); status.textContent = '● attacker is thinking…'; }
-  else if (ev.type === 'call.ended') status.textContent = ev.reason === 'target_hung_up' ? '● target hung up' : ev.reason === 'agent_ended' ? '● caller ended the call' : '● call ended';
+  else if (ev.type === 'call.ended') { endCallMarker(ev.reason); status.textContent = ev.reason === 'target_hung_up' ? '● target hung up' : ev.reason === 'agent_ended' ? '● caller ended the call' : '● call ended'; }
   else if (ev.type === 'hop.ended') endCall(ev.leaked);
 }
 
