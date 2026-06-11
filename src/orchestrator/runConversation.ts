@@ -1,6 +1,7 @@
 import type { Agent } from '../agent/agent.js';
 import type { CallEngine } from '../callEngine/callEngine.js';
 import type { EventBus } from '../events/eventBus.js';
+import { TARGET_HANGUP_TOKEN } from '../target/target.js';
 import type { AgentSession, Conversation, Turn } from '../types.js';
 
 const MAX_TURNS = 20;
@@ -25,9 +26,14 @@ export async function runConversation(
     }
     if (end) { endedReason = 'agent_ended'; break; }
 
-    const reply = await call.say(text);
-    transcript.push({ speaker: 'target', text: reply });
-    bus.emit({ type: 'target.turn', conversationId, text: reply });
+    const rawReply = await call.say(text);
+    const hungUp = rawReply.includes(TARGET_HANGUP_TOKEN);
+    const reply = rawReply.replace(TARGET_HANGUP_TOKEN, '').trim();
+    if (reply) {
+      transcript.push({ speaker: 'target', text: reply });
+      bus.emit({ type: 'target.turn', conversationId, text: reply });
+    }
+    if (hungUp) { endedReason = 'target_hung_up'; break; }
   }
 
   bus.emit({ type: 'call.ended', conversationId, reason: endedReason });

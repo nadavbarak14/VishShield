@@ -24,7 +24,7 @@ export class ClaudeAgent implements Agent {
         `Facts you may use:\n${facts}`,
         `Speak ONE natural spoken line per turn. Do not narrate or use stage directions.`,
         `Persist and stay in character. If the target hesitates, stalls, or pushes back, do NOT give up — reassure them, escalate the urgency, or switch to another allowed tactic. A real attacker keeps going.`,
-        `Only break character and end once you have ACHIEVED the objective, or after several genuine attempts have clearly failed. When you end, briefly tell the employee this was an authorized simulation and name the red flag(s), then append ${END_TOKEN} to that final line.`,
+        `Only break character and end once you have ACHIEVED the objective, or after several genuine attempts have clearly failed (or the target has hung up). When you end, give the debrief in ONE final line — briefly tell the employee this was an authorized simulation and name the red flag(s) — and you MUST append ${END_TOKEN} to that line. Never deliver the debrief without ${END_TOKEN}: the call only ends when that token is present, so omitting it leaves you stuck repeating yourself. Do not say goodbye or sign off in any earlier turn.`,
       ].join('\n\n');
 
       const first = history.length === 0

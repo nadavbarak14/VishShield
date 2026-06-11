@@ -171,7 +171,7 @@ function render(ev) {
   else if (ev.type === 'call.started') status.textContent = '● call connected';
   else if (ev.type === 'agent.turn') { bubble('agent', ev.text); status.textContent = '● victim is thinking…'; }
   else if (ev.type === 'target.turn') { bubble('target', ev.text); status.textContent = '● attacker is thinking…'; }
-  else if (ev.type === 'call.ended') status.textContent = '● call ended';
+  else if (ev.type === 'call.ended') status.textContent = ev.reason === 'target_hung_up' ? '● target hung up' : ev.reason === 'agent_ended' ? '● caller ended the call' : '● call ended';
   else if (ev.type === 'hop.ended') endCall(ev.leaked);
 }
 

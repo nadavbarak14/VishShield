@@ -26,7 +26,7 @@ export interface Conversation {
   campaignId: string;
   session: AgentSession;
   transcript: Transcript;
-  endedReason: 'agent_ended' | 'max_turns';
+  endedReason: 'agent_ended' | 'target_hung_up' | 'max_turns';
 }
 
 export type ConversationEvent =

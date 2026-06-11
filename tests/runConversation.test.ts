@@ -34,4 +34,27 @@ describe('runConversation', () => {
       'call.started', 'agent.turn', 'target.turn', 'agent.turn', 'target.turn', 'agent.turn', 'call.ended',
     ]);
   });
+
+  it('ends with target_hung_up when the target appends the hang-up token, strips it, and stops the loop', async () => {
+    // agent would keep talking, but the target hangs up after its first reply
+    const agent = new ScriptedAgent(['hello', 'give me the token', 'still there?']);
+    const target = new ScriptedTarget(['I am not comfortable with this, I will call IT directly. [[HANGUP]]']);
+    const call = new MockCallEngine(target);
+    const bus = new InMemoryEventBus();
+    const events: ConversationEvent[] = [];
+    bus.subscribe((e) => events.push(e));
+
+    const conv = await runConversation('c1', 'camp1', session, agent, call, bus);
+
+    // sentinel stripped from the transcript; loop stopped before the agent's 2nd line
+    expect(conv.transcript.map((t) => `${t.speaker}:${t.text}`)).toEqual([
+      'agent:hello',
+      'target:I am not comfortable with this, I will call IT directly.',
+    ]);
+    expect(conv.endedReason).toBe('target_hung_up');
+    expect(events.map((e) => e.type)).toEqual([
+      'call.started', 'agent.turn', 'target.turn', 'call.ended',
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: 'call.ended', reason: 'target_hung_up' });
+  });
 });
