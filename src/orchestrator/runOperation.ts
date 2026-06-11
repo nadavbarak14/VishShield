@@ -10,8 +10,8 @@ import type { EventBus } from '../events/eventBus.js';
 import type { Operator } from '../operator/operator.js';
 import type { PeopleKnowledgeBase } from '../knowledge/rosterKnowledgeBase.js';
 import type { CallResult, Fact, Objective, OperationHop, OperationRun, OperatorDecision } from '../types.js';
-import { MockCallEngine } from '../callEngine/mockCallEngine.js';
-import { runCampaign } from './runCampaign.js';
+import type { CallConductor } from '../conductor/callConductor.js';
+import { SimulatedConductor } from '../conductor/simulatedConductor.js';
 
 export interface RunOperationArgs {
   operationId: string;
@@ -25,6 +25,9 @@ export interface RunOperationArgs {
   /** `persona` here is the TARGET's behavioral persona (resolved from fixtures). */
   makeTarget: (personId: string, persona: string, secret?: string) => Target;
   makeCallEngine?: (target: Target) => CallEngine;
+  /** How each call is conducted. Defaults to a SimulatedConductor built from the
+   *  makeAgent/makeTarget/makeCallEngine factories — i.e. today's behavior. */
+  conductor?: CallConductor;
   conversationStore: ConversationStore;
   keyInfoStore: KeyInfoStore;
   extractor: KeyInfoExtractor;
@@ -41,7 +44,17 @@ export interface RunOperationArgs {
 export async function runOperation(args: RunOperationArgs): Promise<OperationRun> {
   const maxHops = args.maxHops ?? 5;
   const runsDir = args.runsDir ?? 'data/runs';
-  const makeCallEngine = args.makeCallEngine ?? ((t: Target) => new MockCallEngine(t));
+  const conductor = args.conductor ?? new SimulatedConductor({
+    makeAgent: args.makeAgent,
+    makeTarget: args.makeTarget,
+    makeCallEngine: args.makeCallEngine,
+    kb: args.roster,
+    fixtures: args.fixtures,
+    conversationStore: args.conversationStore,
+    keyInfoStore: args.keyInfoStore,
+    extractor: args.extractor,
+    bus: args.bus,
+  });
   const opDir = join(runsDir, args.operationId);
   const memoryFile = join(opDir, 'memory.md');
   await mkdir(join(opDir, 'calls'), { recursive: true });
@@ -126,23 +139,15 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
     const results = await Promise.all(orders.map(async (order, i) => {
       const hopId = baseHop + i + 1;
       const objective: Objective = { ...order.objective, secret: args.fixtures[order.personId]?.secret };
-      const agent = args.makeAgent(order.persona, order.personId);
-      const target = args.makeTarget(order.personId, args.fixtures[order.personId]?.targetPersona ?? '', objective.secret);
+      const person = people[i]!;
 
-      const { conversation, keyInfo } = await runCampaign({
+      const { transcript, endedReason, keyInfo } = await conductor.conduct({
+        order,
+        person,
+        objective,
+        hopId,
         conversationId: `${args.operationId}-hop-${hopId}`,
         campaignId: args.operationId,
-        targetId: order.personId,
-        objective,
-        allowedTactics: order.tactics,
-        persona: order.persona,
-        agent,
-        callEngine: makeCallEngine(target),
-        kb: args.roster,
-        conversationStore: args.conversationStore,
-        keyInfoStore: args.keyInfoStore,
-        extractor: args.extractor,
-        bus: args.bus,
       });
 
       const leaked = keyInfo.length > 0;
@@ -151,8 +156,8 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
         personId: order.personId,
         persona: order.persona,
         objective,
-        transcript: conversation.transcript,
-        endedReason: conversation.endedReason,
+        transcript,
+        endedReason,
         leaked,
       };
       await writeFile(join(opDir, 'calls', `hop-${hopId}-${order.personId}.json`), JSON.stringify(hop, null, 2));
