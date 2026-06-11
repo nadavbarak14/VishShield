@@ -138,6 +138,7 @@ async function runOperationScenario(scenario: any, bus: EventBus): Promise<Opera
       dryRun: process.env.VISH_DIAL_DRY_RUN !== 'false',
       pollMs: process.env.DIAL_POLL_MS ? Number(process.env.DIAL_POLL_MS) : undefined,
       timeoutMs: process.env.DIAL_TIMEOUT_MS ? Number(process.env.DIAL_TIMEOUT_MS) : undefined,
+      language: process.env.DIAL_LANGUAGE,
     });
   }
 
