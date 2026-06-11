@@ -12,7 +12,8 @@ async function main() {
 
   console.log('\n=== KEY INFO EXTRACTED ===');
   console.log(run.keyInfo.length ? run.keyInfo : '(target did not leak the secret)');
-  console.log(`\nSaved run → data/runs/${run.id}.json   (dashboard: npm run web)`);
+  const savedAt = 'hops' in run ? `data/runs/${run.id}/` : `data/runs/${run.id}.json`;
+  console.log(`\nSaved run → ${savedAt}   (dashboard: npm run web)`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

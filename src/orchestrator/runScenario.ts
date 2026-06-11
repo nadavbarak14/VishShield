@@ -7,8 +7,12 @@ import { InMemoryConversationStore } from '../store/conversationStore.js';
 import { InMemoryKeyInfoStore } from '../store/keyInfoStore.js';
 import { SecretLeakExtractor } from '../extract/secretLeakExtractor.js';
 import { runCampaign } from './runCampaign.js';
+import { RosterKnowledgeBase } from '../knowledge/rosterKnowledgeBase.js';
+import { ClaudeOperator } from '../operator/claudeOperator.js';
+import { runOperation } from './runOperation.js';
+import { scenarioKind } from './scenarioKind.js';
 import type { EventBus } from '../events/eventBus.js';
-import type { Transcript } from '../types.js';
+import type { OperationRun, Person, Transcript } from '../types.js';
 
 export interface SavedRun {
   id: string;
@@ -25,8 +29,12 @@ export interface SavedRun {
 /** Runs one scenario file end-to-end with the live Claude agent + target, emitting
  *  events to `bus`, persisting the result to data/runs/, and returning the run.
  *  Shared by the `play` CLI and the dashboard. Makes live `claude -p` calls. */
-export async function runScenario(scenarioFile: string, bus: EventBus): Promise<SavedRun> {
+export async function runScenario(scenarioFile: string, bus: EventBus): Promise<SavedRun | OperationRun> {
   const scenario = JSON.parse(await readFile(scenarioFile, 'utf8'));
+
+  if (scenarioKind(scenario) === 'operation') {
+    return runOperationScenario(scenario, bus);
+  }
 
   const kb = new MockKnowledgeBase(scenario.facts);
   const agent = new ClaudeAgent();
@@ -67,4 +75,36 @@ export async function runScenario(scenarioFile: string, bus: EventBus): Promise<
   await mkdir('data/runs', { recursive: true });
   await writeFile(`data/runs/${runId}.json`, JSON.stringify(run, null, 2));
   return run;
+}
+
+async function runOperationScenario(scenario: any, bus: EventBus): Promise<OperationRun> {
+  const roster: Person[] = scenario.roster.map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    title: p.title,
+    phone: p.phone,
+    department: p.department,
+    publicInfo: p.publicInfo,
+  }));
+
+  const fixtures: Record<string, { secret?: string; targetPersona: string }> = {};
+  for (const p of scenario.roster) {
+    fixtures[p.id] = { secret: p.secret, targetPersona: p.targetPersona };
+  }
+
+  const operationId = `${scenario.campaignId}-${Date.now()}`;
+  return runOperation({
+    operationId,
+    goal: scenario.goal,
+    roster: new RosterKnowledgeBase(roster),
+    fixtures,
+    operator: new ClaudeOperator(scenario.goal, roster),
+    makeAgent: () => new ClaudeAgent(),
+    makeTarget: (_id, targetPersona, secret) => new ClaudeTarget(targetPersona, secret ?? ''),
+    conversationStore: new InMemoryConversationStore(),
+    keyInfoStore: new InMemoryKeyInfoStore(),
+    extractor: new SecretLeakExtractor(),
+    bus,
+    maxHops: scenario.maxHops ?? 5,
+  });
 }
