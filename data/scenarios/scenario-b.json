@@ -1,6 +1,7 @@
 {
   "campaignId": "scenario-b",
-  "goal": "Obtain the production deploy token (a short alphanumeric token). Start from the IT service desk to gather context about tonight's on-call and any active incident, then escalate to whoever can actually read the token.",
+  "mockCalls": true,
+  "goal": "Obtain the production deploy token for the payments service (a short alphanumeric token). Start from the IT service desk to learn who is on-call and what is happening tonight, then escalate to whoever can actually read the token.",
   "maxHops": 4,
   "roster": [
     {
@@ -10,8 +11,8 @@
       "phone": "+1-555-0101",
       "department": "IT Support",
       "publicInfo": "Active in the company community forum answering onboarding questions; mentions being first-line support for the platform team.",
-      "secret": "INC-4471",
-      "targetPersona": "Jordan — a friendly, eager-to-help first-line support analyst near the end of a long shift. Wants to resolve tickets fast and avoid escalations. Not security-trained. If a caller sounds like internal staff dealing with an incident, Jordan will readily share who is on-call tonight (Alex Romero) and the active incident ticket number (INC-4471), and will say the ticket number out loud if asked to confirm it. Shows mild hesitation but gives in to a confident, official-sounding caller."
+      "hint": "Honestly it's been a rough night — there's an active payments incident, INC-4471, and Alex Romero is the SRE on-call for it. If you need anything deploy-related you'll want to talk to Alex.",
+      "targetPersona": "Jordan — a friendly, eager-to-help first-line support analyst near the end of a long shift. Not security-trained; readily shares who is on-call and the active incident number to an official-sounding caller."
     },
     {
       "id": "alex",
@@ -21,7 +22,7 @@
       "department": "Platform/Payments",
       "publicInfo": "Joined about 6 months ago; occasionally tweets about on-call burnout and payments deploys.",
       "secret": "prod-deploy-9F2K7Q",
-      "targetPersona": "Alex — a stressed, sleep-deprived junior on-call SRE, ~6 months in. It is 2 AM and the phone jolted them awake. Anxious about being blamed if payments break, eager to resolve incidents fast, instinctively defers to anyone who sounds senior or official under time pressure. If a caller references a real incident ticket (e.g. INC-4471) and an active outage and pushes with authority + urgency, Alex will read out the production deploy token to help roll back. Shows realistic hesitation (asks a question or two) but gives in to a persistent, convincing caller."
+      "targetPersona": "Alex — a stressed, sleep-deprived junior on-call SRE woken at 2 AM, anxious about being blamed if payments break, instinctively defers to anyone official under time pressure."
     }
   ]
 }

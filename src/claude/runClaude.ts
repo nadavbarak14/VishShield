@@ -1,10 +1,14 @@
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 
-/** Model the OPERATOR (the orchestrator agent) reasons on. Defaults to Haiku — fast and
- *  cheap, and its structured decision-making holds up well there. Overridable with
- *  VISH_CLAUDE_MODEL (e.g. "sonnet" / "opus" / a full model id) without touching code. */
+/** Base default model. Used where nothing more specific is set. */
 export const CLAUDE_MODEL = process.env.VISH_CLAUDE_MODEL ?? 'haiku';
+
+/** Model the OPERATOR (the main orchestrator agent — the real thinking) reasons on. Defaults
+ *  to Sonnet: the orchestration/strategy role does NOT trip the refusals the live role-players
+ *  hit (it plans, it doesn't personally impersonate anyone), and Sonnet's reasoning is far
+ *  richer to watch. Overridable with VISH_OPERATOR_MODEL. */
+export const OPERATOR_MODEL = process.env.VISH_OPERATOR_MODEL ?? 'sonnet';
 
 /** Model the CALLER and VICTIM role-players run on, separate from the operator so they can be
  *  tuned independently. Defaults to Haiku — and that default is deliberate: the larger models
@@ -37,11 +41,11 @@ export function claudeArgs(opts: { systemPrompt: string; resume?: string; model?
  *  subscription (no ANTHROPIC_API_KEY needed). Requires `claude` on PATH and a prior login.
  *  The user prompt is piped via STDIN (avoids argv length limits and flag-ordering ambiguity);
  *  the system prompt is passed as a flag. Verify flags against your installed CLI version. */
-export function runClaude(systemPrompt: string, userPrompt: string): Promise<string> {
+export function runClaude(systemPrompt: string, userPrompt: string, model?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       'claude',
-      claudeArgs({ systemPrompt }),
+      claudeArgs({ systemPrompt, model }),
       { stdio: ['pipe', 'pipe', 'pipe'], cwd: CLAUDE_CWD },
     );
     let stdout = '';

@@ -1,6 +1,8 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { ClaudeAgent } from '../agent/claudeAgent.js';
+import { MockVoiceAgent } from '../agent/mockVoiceAgent.js';
 import { ClaudeTarget } from '../target/claudeTarget.js';
+import { MockVoiceTarget, type MockPerson } from '../target/mockVoiceTarget.js';
 import { MockCallEngine } from '../callEngine/mockCallEngine.js';
 import { MockKnowledgeBase } from '../knowledge/mockKnowledgeBase.js';
 import { InMemoryConversationStore } from '../store/conversationStore.js';
@@ -99,6 +101,14 @@ async function runOperationScenario(scenario: any, bus: EventBus): Promise<Opera
     fixtures[p.id] = { secret: p.secret, targetPersona: p.targetPersona };
   }
 
+  // Mock-call mode: the OPERATOR is the real Claude (sonnet) doing genuine thinking, but each
+  // call is a deterministic fixture instead of a live role-player — which sidesteps the
+  // safety refusals / out-of-character monologues the live victim/caller hit. The operator
+  // still decides who to call and why; the mock just returns a transcript + leak verdict.
+  const useMock = scenario.mockCalls === true;
+  const mockMap: Record<string, MockPerson> = {};
+  for (const p of scenario.roster) mockMap[p.id] = { name: p.name, secret: p.secret, hint: p.hint };
+
   const operationId = `${scenario.campaignId}-${Date.now()}`;
   return runOperation({
     operationId,
@@ -106,12 +116,15 @@ async function runOperationScenario(scenario: any, bus: EventBus): Promise<Opera
     roster: new RosterKnowledgeBase(roster),
     fixtures,
     operator: new ClaudeOperator(scenario.goal, roster),
-    makeAgent: () => new ClaudeAgent(),
-    makeTarget: (_id, targetPersona, secret) => new ClaudeTarget(targetPersona, secret ?? ''),
+    makeAgent: useMock ? () => new MockVoiceAgent() : () => new ClaudeAgent(),
+    makeTarget: useMock
+      ? (id) => new MockVoiceTarget(mockMap[id])
+      : (_id, targetPersona, secret) => new ClaudeTarget(targetPersona, secret ?? ''),
     conversationStore: new InMemoryConversationStore(),
     keyInfoStore: new InMemoryKeyInfoStore(),
     extractor: new SecretLeakExtractor(),
     bus,
     maxHops: scenario.maxHops ?? 5,
+    stopOnGoal: true,
   });
 }

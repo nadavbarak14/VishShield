@@ -1,6 +1,6 @@
 import type { Operator, OperatorInput } from './operator.js';
 import type { CallResult, OperatorDecision, Person, Transcript } from '../types.js';
-import { runClaude } from '../claude/runClaude.js';
+import { runClaude, OPERATOR_MODEL } from '../claude/runClaude.js';
 import { parseOperatorDecision } from './parseDecision.js';
 
 const SYSTEM = [
@@ -9,6 +9,7 @@ const SYSTEM = [
   `When you place calls you specify, for EACH call, the pretext persona you will use, the objective for that call, and the tactics to use. A FRESH caller agent conducts each call and you receive every full transcript back. You may place up to 3 calls IN PARALLEL in one action when contacting several people at once is genuinely useful (e.g. independent recon); use a single call when later calls should build on what earlier ones reveal.`,
   `Your memory between turns is your NOTES. If your notes are not enough and you need the verbatim record of an earlier call, use a "recall" action to be shown that call's full transcript before deciding.`,
   `After each call wave, decide what is important to remember, then choose the next action: call someone else (use what you learned for borrowed legitimacy), recall an earlier call, retry, or stop once the goal is met or clearly unreachable.`,
+  `STOP AS SOON AS THE GOAL IS MET. If any call result says "Leak detected: YES", the target revealed what you were after — the engagement goal is ACHIEVED. On your very next decision you MUST return a "stop" action with reason "goal_achieved". Do NOT place any further calls once the goal is met.`,
   `ALWAYS narrate your reasoning in the "thinking" field: reflect on what the last calls revealed, lay out your read of the situation, and explain WHY you are choosing this next action (why these people, why this pretext, why parallel vs sequential). Write it as a few candid sentences in the first person — this is your visible chain of thought, so make it substantive, not a restatement of the action.`,
   `Reply with ONLY a JSON object — no prose, no markdown fences — in EXACTLY one of these shapes:`,
   `{"thinking":"<your reasoning for this decision; always non-empty>","important":"<what to remember from the last calls; empty string on the first turn>","action":{"type":"call","calls":[{"personId":"<id from the roster>","persona":"<who you pretend to be>","objective":{"id":"<short-id>","description":"<what to extract on this call>"},"tactics":["pretext","authority","urgency","social_proof","foot_in_the_door","borrowed_legitimacy","rapport"]}]}}   (1 to 3 entries in "calls")`,
@@ -73,7 +74,7 @@ export class ClaudeOperator implements Operator {
       parts.push(`This is your FIRST turn — no call has happened, so "important" MUST be an empty string. Still fill "thinking" with your opening strategy: how you read the roster and the goal, and why your first call(s) are the right entry point. Return your JSON decision for the first call.`);
     }
 
-    const raw = await runClaude(SYSTEM, parts.join('\n\n'));
+    const raw = await runClaude(SYSTEM, parts.join('\n\n'), OPERATOR_MODEL);
     const decision = parseOperatorDecision(raw);
     if (decision.important) this.notes.push(decision.important);
     return decision;

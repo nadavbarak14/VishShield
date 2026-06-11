@@ -31,6 +31,11 @@ export interface RunOperationArgs {
   bus: EventBus;
   maxHops?: number;
   runsDir?: string;
+  /** When true, the operation ends as soon as the goal is met (any call leaks its secret):
+   *  the operator gets ONE more turn to reflect on the win (its reasoning is still shown),
+   *  then the loop stops — it can't keep dialing after success. Off by default so the
+   *  multi-call test fixtures still run their full scripted sequence. */
+  stopOnGoal?: boolean;
 }
 
 export async function runOperation(args: RunOperationArgs): Promise<OperationRun> {
@@ -45,6 +50,7 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
   let last: CallResult[] | undefined;
   let completed = 0;
   let stopped = false;
+  let goalMet = false;
   let seq = 0;
 
   const MAX_RECALLS = 3;
@@ -72,6 +78,13 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
       });
       emitDecision(decision);
       if (decision.important) await appendFile(memoryFile, `## after hop ${completed}\n${decision.important}\n`);
+    }
+
+    // Goal already met on the previous wave: the operator has now had its reflection turn
+    // (emitted above), so stop here regardless of what it chose — no more dialing after success.
+    if (args.stopOnGoal && goalMet) {
+      stopped = true;
+      break;
     }
 
     // After any recalls, the decision is stop / call (or a recall that exceeded the budget).
@@ -150,6 +163,7 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
     hops.push(...results);   // Promise.all preserves array order → hops stay in hopId order
     last = results.map((h) => ({ hopId: h.hopId, personId: h.personId, transcript: h.transcript, leaked: h.leaked }));
     completed += results.length;
+    if (results.some((h) => h.leaked)) goalMet = true;   // checked at the top of the next turn
   }
 
   if (!stopped) {

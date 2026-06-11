@@ -150,6 +150,23 @@ describe('runOperation (offline, scripted)', () => {
     expect(hop2.leaked).toBe(false);
   });
 
+  it('with stopOnGoal, ends after the goal is met even if the operator wants to keep calling', async () => {
+    const runsDir = await mkdtemp(join(tmpdir(), 'vish-'));
+    const bus = new InMemoryEventBus();
+    // call A leaks (its scripted target reads SECRET-A); operator then tries B, then B again…
+    const operator = new ScriptedOperator([callA, callB, callB, callB]);
+    const spy = vi.spyOn(operator, 'decideNext');
+
+    const run = await runOperation({ ...baseArgs(runsDir, operator, bus), stopOnGoal: true });
+
+    // only A was actually placed; B never dialed despite the operator asking for it
+    expect(run.hops.map((h) => h.personId)).toEqual(['a']);
+    expect(run.compromised).toBe(true);
+    // the operator still got ONE reflection turn after the win (so its reasoning is shown)
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy.mock.calls[1][0].last).toMatchObject([{ personId: 'a', leaked: true }]);
+  });
+
   it('trims a wave that would exceed maxHops', async () => {
     const runsDir = await mkdtemp(join(tmpdir(), 'vish-'));
     const bus = new InMemoryEventBus();
