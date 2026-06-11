@@ -3,7 +3,7 @@ import { DialConductor, buildOutboundInstruction } from '../src/dial/dialConduct
 import { SecretLeakExtractor } from '../src/extract/secretLeakExtractor.js';
 import { InMemoryEventBus } from '../src/events/eventBus.js';
 import type { ConductCtx } from '../src/conductor/callConductor.js';
-import type { Person } from '../src/types.js';
+import type { Person, ConversationEvent } from '../src/types.js';
 
 const person: Person = { id: 'a', name: 'Alex Doe', title: 'Service Desk', phone: '+15551234', publicInfo: 'on LinkedIn' };
 const ctx: ConductCtx = {
@@ -67,5 +67,29 @@ describe('DialConductor', () => {
     });
     const res = await conductor.conduct(ctx);
     expect(res.endedReason).toBe('dial_timeout');
+  });
+
+  it('emits call.started, a turn per transcript line, then call.ended', async () => {
+    const bus = new InMemoryEventBus();
+    const events: ConversationEvent[] = [];
+    bus.subscribe((e) => events.push(e));
+    const client = {
+      makeCall: vi.fn().mockResolvedValue({ id: 'call_1', status: 'initiated' }),
+      getCall: vi.fn().mockResolvedValue({ id: 'call_1', status: 'completed', transcript: 'AGENT: hello\nTARGET: hi back' }),
+    };
+    const conductor = new DialConductor({
+      client: client as any, fromNumberId: 'pn_1', extractor: new SecretLeakExtractor(),
+      bus, dryRun: false, pollMs: 1, timeoutMs: 1000, sleep: async () => {},
+    });
+    await conductor.conduct(ctx);
+
+    const types = events.map((e) => e.type);
+    expect(types[0]).toBe('call.started');
+    expect(types.at(-1)).toBe('call.ended');
+    expect(types.filter((t) => t === 'agent.turn').length).toBe(1);
+    expect(types.filter((t) => t === 'target.turn').length).toBe(1);
+    // turns are emitted between start and end
+    expect(types.indexOf('agent.turn')).toBeGreaterThan(types.indexOf('call.started'));
+    expect(types.indexOf('agent.turn')).toBeLessThan(types.indexOf('call.ended'));
   });
 });
