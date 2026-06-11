@@ -2,6 +2,15 @@ export type Technique =
   | 'pretext' | 'authority' | 'urgency' | 'social_proof'
   | 'foot_in_the_door' | 'borrowed_legitimacy' | 'rapport';
 
+/** A selectable instruction blueprint — "how to get info". The session-level unit
+ *  the user picks at start; replaces the old per-file scenario. */
+export interface Tactic {
+  id: string;
+  name: string;
+  summary: string;        // one line, shown on the chip
+  instructions: string;   // the guidance the operator reads
+}
+
 export interface Fact { key: string; value: string; }
 
 export interface Objective {
