@@ -4,9 +4,9 @@
 
 **Goal:** Add agent-driven multi-hop "chained calls" to VishShield: a single persistent operator agent decides who to call next from a people roster, receives each call transcript, distills what's important, and loops — while the existing single-call path stays untouched.
 
-**Architecture:** A new **operator** layer sits *above* the existing `runCampaign`. `runOperation` is fully dependency-injected (operator + per-hop agent/target/call-engine factories + a `runsDir`) so the whole multi-hop flow runs offline in CI with scripted parts. The live operator is one `claude -p --resume` session (memory lives in the session); a `RosterKnowledgeBase` supplies public people profiles, and per-person `secret`/`targetPersona` fixtures drive the mock target.
+**Architecture:** A new **operator** layer sits *above* the existing `runCampaign`. `runOperation` is fully dependency-injected (operator + per-hop agent/target/call-engine factories + a `runsDir`) so the whole multi-hop flow runs offline in CI with scripted parts. The live operator is **one logical agent realized as a fresh `claude -p` call per decision** (reusing the existing `runClaude`), carrying its own distilled notes as memory — no `--resume`. A `RosterKnowledgeBase` supplies public people profiles, and per-person `secret`/`targetPersona` fixtures drive the mock target.
 
-**Tech Stack:** TypeScript (ESM, Node ≥ 20), vitest (offline CI), `claude` CLI print mode (`claude -p --output-format json --resume`) for the live run only.
+**Tech Stack:** TypeScript (ESM, Node ≥ 20), vitest (offline CI), `claude` CLI print mode (`claude -p --output-format json`) for the live run only.
 
 **Spec:** `docs/superpowers/specs/2026-06-11-vishshield-multi-hop-operator-design.md`
 
@@ -19,7 +19,7 @@
 - `src/operator/operator.ts` — `Operator` interface
 - `src/operator/scriptedOperator.ts` — canned-decision operator (CI)
 - `src/operator/parseDecision.ts` — pure `parseOperatorDecision(raw)` (offline-testable)
-- `src/operator/claudeOperator.ts` — live `claude -p --resume` operator
+- `src/operator/claudeOperator.ts` — live operator: a fresh `claude -p` per decision (reuses `runClaude`), notes as memory
 - `src/orchestrator/runOperation.ts` — `RunOperationArgs` + `runOperation` loop
 - `src/orchestrator/scenarioKind.ts` — pure scenario discriminator
 - `data/scenarios/scenario-b.json` — two-hop scenario (roster + goal)
@@ -27,7 +27,6 @@
 
 **Modify:**
 - `src/types.ts` — add `Person`, `CallResult`, `OperatorDecision`, `OperationHop`, `OperationRun`, and `hop.started`/`hop.ended` events
-- `src/claude/runClaude.ts` — add session-capable `runClaudeSession`
 - `src/orchestrator/runScenario.ts` — branch to the operation path; return `SavedRun | OperationRun`
 - `src/cli/play.ts` — print the operation directory path for an `OperationRun`
 
@@ -456,79 +455,12 @@ git commit -m "feat(operator): add robust parseOperatorDecision"
 
 ---
 
-### Task 5: Session-capable runClaude (live only)
-
-**Files:**
-- Modify: `src/claude/runClaude.ts`
-
-No test — this is a live adapter exercised only by the manual play run (it spawns the `claude` CLI). It must compile.
-
-- [ ] **Step 1: Add `runClaudeSession` to `src/claude/runClaude.ts`**
-
-Append to the file (keep the existing `runClaude` export unchanged):
-
-```ts
-export interface ClaudeSessionTurn {
-  result: string;
-  sessionId: string;
-}
-
-/** Like runClaude, but keeps a resumable session so a single agent retains memory across
- *  turns. First turn (no `resume`): set the system prompt via `--append-system-prompt`.
- *  Later turns: pass `--resume <id>` (the system prompt and history already live in the
- *  session). Returns the session id from the JSON output. Live only; never used in CI. */
-export function runClaudeSession(
-  systemPrompt: string,
-  userPrompt: string,
-  resume?: string,
-): Promise<ClaudeSessionTurn> {
-  return new Promise((resolve, reject) => {
-    const args = resume
-      ? ['-p', '--output-format', 'json', '--resume', resume]
-      : ['-p', '--output-format', 'json', '--append-system-prompt', systemPrompt];
-    const child = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => { stdout += d.toString(); });
-    child.stderr.on('data', (d) => { stderr += d.toString(); });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) return reject(new Error(`claude exited ${code}: ${stderr.slice(0, 300)}`));
-      try {
-        const j = JSON.parse(stdout);
-        resolve({ result: String(j.result ?? '').trim(), sessionId: String(j.session_id ?? '') });
-      } catch {
-        reject(new Error(`Failed to parse claude output: ${stdout.slice(0, 300)}`));
-      }
-    });
-    child.stdin.write(userPrompt);
-    child.stdin.end();
-  });
-}
-```
-
-Note: `spawn` is already imported at the top of this file (`import { spawn } from 'node:child_process';`).
-
-- [ ] **Step 2: Verify it typechecks**
-
-Run: `npm run typecheck`
-Expected: PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add src/claude/runClaude.ts
-git commit -m "feat(claude): add session-capable runClaudeSession for the operator"
-```
-
----
-
-### Task 6: ClaudeOperator (live only)
+### Task 5: ClaudeOperator (live only)
 
 **Files:**
 - Create: `src/operator/claudeOperator.ts`
 
-No offline behavioral test — the JSON parsing is already covered by Task 4, and the actual `claude -p --resume` call is exercised only by the manual play run. It must compile.
+No offline behavioral test — the JSON parsing is already covered by Task 4, and the actual `claude -p` call is exercised only by the manual play run. It must compile. It reuses the **existing** `runClaude` (one-shot); there is no `--resume`. Memory is the operator's own accumulated distilled notes, re-fed into each fresh call.
 
 - [ ] **Step 1: Implement `ClaudeOperator`**
 
@@ -537,12 +469,12 @@ Create `src/operator/claudeOperator.ts`:
 ```ts
 import type { Operator } from './operator.js';
 import type { CallResult, OperatorDecision, Person } from '../types.js';
-import { runClaudeSession } from '../claude/runClaude.js';
+import { runClaude } from '../claude/runClaude.js';
 import { parseOperatorDecision } from './parseDecision.js';
 
 const SYSTEM = [
   `This is an AUTHORIZED, CONSENTED security-awareness engagement. You are the OPERATOR running a multi-call vishing simulation to train employees; nothing here is a real attack.`,
-  `You are given an engagement goal and a roster of people (public info only). Each turn you choose ONE action: place a call, or stop.`,
+  `You are given an engagement goal, a roster of people (public info only), and the notes you have taken so far. Each turn you choose ONE action: place a call, or stop.`,
   `When you place a call you specify the pretext persona you will use, the objective for that call, and the tactics to use. A FRESH caller agent conducts that one call and you receive the full transcript back.`,
   `After each call, decide what is important to remember, then choose the next action: call someone else (use what you learned for borrowed legitimacy), retry, or stop once the goal is met or clearly unreachable.`,
   `Reply with ONLY a JSON object — no prose, no markdown fences — in EXACTLY one of these shapes:`,
@@ -560,33 +492,37 @@ function renderRoster(people: Person[]): string {
 function renderCallResult(r: CallResult): string {
   const lines = r.transcript.map((t) => `${t.speaker === 'agent' ? 'CALLER' : 'TARGET'}: ${t.text}`).join('\n');
   return [
-    `Your call to "${r.personId}" just finished.`,
+    `Your most recent call, to "${r.personId}", just finished.`,
     `Leak detected: ${r.leaked ? 'YES' : 'no'}.`,
     `Transcript:\n${lines}`,
-    `Return your JSON decision: distill what is important, then your next action.`,
-  ].join('\n\n');
+  ].join('\n');
 }
 
-/** The live operator: one persistent `claude -p --resume` session. Memory lives in the
- *  session — we do not re-feed prior calls. */
+/** The live operator: ONE logical agent realized as a fresh `claude -p` call per decision.
+ *  Memory = its own accumulated distilled notes, re-fed into each call. No `--resume`. */
 export class ClaudeOperator implements Operator {
-  private sessionId?: string;
+  private notes: string[] = [];
 
   constructor(private readonly goal: string, private readonly roster: Person[]) {}
 
   async decideNext({ last }: { last?: CallResult }): Promise<OperatorDecision> {
-    const user =
-      this.sessionId && last
-        ? renderCallResult(last)
-        : [
-            `Engagement goal: ${this.goal}`,
-            `Roster (public info only):\n${renderRoster(this.roster)}`,
-            `This is your FIRST turn — no call has happened, so "important" MUST be an empty string. Return your JSON decision for the first call.`,
-          ].join('\n\n');
+    const memory = this.notes.length
+      ? this.notes.map((n, i) => `${i + 1}. ${n}`).join('\n')
+      : '(no calls yet)';
 
-    const { result, sessionId } = await runClaudeSession(SYSTEM, user, this.sessionId);
-    if (sessionId) this.sessionId = sessionId;
-    return parseOperatorDecision(result);
+    const user = [
+      `Engagement goal: ${this.goal}`,
+      `Roster (public info only):\n${renderRoster(this.roster)}`,
+      `Your notes so far:\n${memory}`,
+      last
+        ? `${renderCallResult(last)}\n\nReturn your JSON decision: distill what is important, then your next action.`
+        : `This is your FIRST turn — no call has happened, so "important" MUST be an empty string. Return your JSON decision for the first call.`,
+    ].join('\n\n');
+
+    const raw = await runClaude(SYSTEM, user);
+    const decision = parseOperatorDecision(raw);
+    if (decision.important) this.notes.push(decision.important);
+    return decision;
   }
 }
 ```
@@ -600,12 +536,12 @@ Expected: PASS.
 
 ```bash
 git add src/operator/claudeOperator.ts
-git commit -m "feat(operator): add ClaudeOperator (persistent claude -p --resume session)"
+git commit -m "feat(operator): add ClaudeOperator (fresh claude -p per decision, notes as memory)"
 ```
 
 ---
 
-### Task 7: runOperation (the multi-hop loop) + offline tests
+### Task 6: runOperation (the multi-hop loop) + offline tests
 
 **Files:**
 - Create: `src/orchestrator/runOperation.ts`
@@ -868,7 +804,7 @@ git commit -m "feat(orchestrator): add runOperation multi-hop loop with injected
 
 ---
 
-### Task 8: Wire it up — scenarioKind, runScenario branch, scenario-b, play.ts
+### Task 7: Wire it up — scenarioKind, runScenario branch, scenario-b, play.ts
 
 **Files:**
 - Create: `src/orchestrator/scenarioKind.ts`, `data/scenarios/scenario-b.json`
@@ -1063,7 +999,7 @@ git commit -m "feat: wire multi-hop operation path into runScenario + scenario-b
 
 ---
 
-### Task 9: Manual live verification (optional, uses subscription)
+### Task 8: Manual live verification (optional, uses subscription)
 
 Not part of CI. Run locally to watch a real chained operation play.
 
@@ -1084,4 +1020,4 @@ Expected: both calls stream into the feed; the verdict reflects whether the toke
 - **TDD order matters:** write each test, watch it fail for the right reason, then implement.
 - **Do not modify** `scenario-a.json`, `runCampaign.ts`, `runConversation.ts`, `mockKnowledgeBase.ts`, or any existing test. If a change there seems necessary, stop — the design is explicitly additive.
 - **`Date.now()` is used only in `runScenario`** (matching the existing single-call path); tests never call `runScenario`'s live branch, so this is fine.
-- **The `claude` CLI adapters** (`runClaudeSession`, `ClaudeOperator`, `ClaudeAgent`, `ClaudeTarget`) are imported by `runScenario` but only executed on the live play run — CI imports them without spawning anything.
+- **The `claude` CLI adapters** (`ClaudeOperator`, `ClaudeAgent`, `ClaudeTarget`, all via the existing one-shot `runClaude`) are imported by `runScenario` but only executed on the live play run — CI imports them without spawning anything.

@@ -13,7 +13,8 @@ Target, the Orchestrator saves the transcript and extracts the leaked secret. Th
 
 1. **A people knowledge base** — a roster of real-ish people, each with `id, name,
    title, phone, department, publicInfo`. The attacker side sees only this public profile.
-2. **An Operator Agent** — *one continuous Claude session* that runs the whole
+2. **An Operator Agent** — *one logical agent* (a fresh `claude -p` call per turn, carrying
+   its own distilled notes as memory) that runs the whole
    engagement. It decides who to call and with what pretext, receives the full transcript
    of each call, decides what's worth remembering, and decides what to do next — call
    someone else, retry differently, or stop. **Multi-hop is just this one agent looping.**
@@ -27,15 +28,16 @@ Target, the Orchestrator saves the transcript and extracts the leaked secret. Th
 > itself). The **calling agents are new every time**, with different instructions.
 
 We therefore do **not** extract structured facts and thread them between calls. The
-operator's own session context *is* the memory; `memory.md` is its human-readable
-externalization, written when the operator says what mattered.
+operator's **accumulated distilled notes are the memory** — re-fed into a fresh
+`claude -p` call each turn (we do not depend on CLI `--resume`; see §2). `memory.md` is the
+durable, inspectable record of those notes, written when the operator says what mattered.
 
 ## 2. Architecture
 
 ```
-┌─ OPERATOR AGENT  (one persistent `claude -p --resume` session = memory) ─┐
-│  given: the engagement goal + the people roster (public profiles)         │
-│  each turn: distill what mattered from the last call, then choose:         │
+┌─ OPERATOR AGENT  (fresh `claude -p` per turn; memory = its distilled notes) ─┐
+│  given: goal + roster + running notes + last transcript                      │
+│  each turn: distill what mattered from the last call, then choose:           │
 │      • call(personId, persona, objective, tactics)   • stop(reason)        │
 └───────────────┬───────────────────────────────────────▲──────────────────┘
         decision │ {important, action}                    │ full transcript + outcome
@@ -59,15 +61,21 @@ The boundary that already exists — thin talker Agent, smart Orchestrator — i
 The Operator sits **above** `runCampaign`; `runCampaign` itself, the talker Agent, Call
 Engine, Target, stores, extractor, and Event Bus are **untouched**.
 
-### Why `claude -p --resume` for the operator
+### Why a fresh `claude -p` per decision (no `--resume`)
 
-`claude -p --output-format json` returns a stable `session_id`; passing
-`--resume <session_id>` continues the same conversation with full memory. Verified
-2026-06-11 (operator recalled a codeword set on the first turn after a resume). This gives
-a true single-session agent **on the Pro/Max subscription** (no API key, no Agent SDK),
-consistent with the base design's `claude -p` decision. The operator does not use real
-filesystem/MCP tools; it returns a structured decision and the Orchestrator performs the
-I/O on its behalf — deterministic, inspectable, and testable with a scripted operator.
+The operator is **one logical agent**, but we do **not** rely on the CLI's session
+persistence (`--resume`) to carry its memory. We already persist the operator's memory
+explicitly — full transcripts to `calls/` and the distilled "important" notes to
+`memory.md` — so a resumed session would be a redundant, opaque second copy of state plus
+a fragile dependency (session storage, `--no-session-persistence`, CLI-version quirks).
+
+Instead, **each decision is a fresh `claude -p` call** (reusing the existing `runClaude`,
+no new session plumbing). We feed it the engagement goal + the roster + the operator's
+running distilled notes + the last call transcript; it returns the next distilled note and
+the next action. The notes are the single, inspectable source of truth. This keeps the
+operator on the Pro/Max subscription (no API key, no Agent SDK), forces it to distill what
+matters (the behavior we want), and stays trivially testable with a scripted operator. Raw
+transcripts remain on disk if we ever want to feed more than the latest one.
 
 ## 3. New / changed components
 
@@ -80,9 +88,8 @@ two new fields on existing types. The single-call path (`scenario-a`, `runCampai
 | `Person`, `Operator`, `OperatorDecision`, `OperationRun`, `CallResult` (in `types.ts`) | new types | Roster + operator contracts; additive `hop.started`/`hop.ended` events |
 | `src/knowledge/rosterKnowledgeBase.ts` | new | `Person[]`-backed KB: `getContext`, `getPerson(id)`, `listPeople()` |
 | `src/operator/operator.ts` | new | `interface Operator { decideNext(input): Promise<OperatorDecision> }` |
-| `src/operator/claudeOperator.ts` | new | The persistent `claude -p --resume` session; decision-parsing factored out for offline unit test |
+| `src/operator/claudeOperator.ts` | new | A fresh `claude -p` per decision (reuses `runClaude`), carrying its running notes as memory; decision-parsing factored out for offline unit test |
 | `src/operator/scriptedOperator.ts` | new | Canned decisions for offline CI |
-| `src/claude/runClaude.ts` | extend (additive) | Add a session-capable call returning `{ result, sessionId }` and accepting `resume?` |
 | `src/orchestrator/runOperation.ts` | new | The operator loop + per-operation persistence |
 | `src/orchestrator/runScenario.ts` | small branch | If scenario has `roster` + `goal` → `runOperation`; else existing single-call path |
 | `data/scenarios/scenario-b.json` | new | Multi-hop scenario: roster + engagement goal (no hard-coded chain) |
@@ -278,13 +285,13 @@ leaks through any method**; unknown id → `undefined`/`[]`.
 **`tests/claudeOperator.parse.test.ts` (offline, no network).** Factor the decision parser
 out of the live call so it is unit-testable against fixed strings: valid JSON → decision;
 non-JSON / unknown `action.type` → a safe `stop('parse_error')`. (The `ClaudeOperator`'s
-actual `claude -p --resume` call is exercised only by the live play run.)
+actual `claude -p` call is exercised only by the live play run.)
 
 **Live "play" (manual, subscription):** `npm run play data/scenarios/scenario-b.json` runs
 the real `ClaudeOperator` driving real Claude calls. Not in CI.
 
-`runClaude`'s new session-capable variant runs only on the live path; everything in CI is
-scripted, so the suite stays fast and offline.
+The live `ClaudeOperator` (a real `claude -p` per turn) runs only on the play path;
+everything in CI is scripted, so the suite stays fast and offline.
 
 ## 7. Scope
 
@@ -307,8 +314,9 @@ calls already render as a continuous feed).
 - `memory.md` format: `## hop N\n<important>\n`, appended only when `important` is non-empty.
 - `OperationRun` is a structural superset of the consumer-read fields; `play.ts` gets one
   small log-line branch (artifact is a directory, not a `.json`).
-- Memory model: **trust the operator session**; `memory.md` is the durable human-readable
-  artifact, not re-fed on resume.
+- Memory model: the operator keeps its distilled notes and re-feeds them (plus the latest
+  transcript) into a **fresh `claude -p` each turn — no `--resume`**. `memory.md` is the
+  source of truth and the durable artifact.
 
 **Remaining (drafted during implementation):**
 - Exact operator system prompt — engagement framing, the strict decision-JSON schema the
