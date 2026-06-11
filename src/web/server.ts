@@ -315,8 +315,8 @@ const PAGE = /* html */ `<!doctype html>
     <aside class="left">
       <div class="panel">
         <div class="phead">
-          <div class="ptoggle" data-act="panel" data-arg="scenario"><span class="chev" id="chevScenario">▸</span><span class="plabel">SCENARIO</span></div>
-          <button class="pbtn" data-act="overlay" data-arg="library">⤢ BROWSE</button>
+          <div class="ptoggle" data-act="panel" data-arg="scenario"><span class="chev" id="chevScenario">▸</span><span class="plabel">TACTICS</span></div>
+          <button class="pbtn" data-act="newsession">⤢ NEW SESSION</button>
         </div>
         <div class="pbody" id="scnBody"></div>
       </div>
@@ -389,7 +389,11 @@ var panels = { scenario: true, tree: true, exfil: true };
 var tacticsOff = {};       // visual sanctioned-tactics toggles
 var expandedOverride = {}; // call key -> bool
 var worker = null;         // selected worker id
-var overlay = null;        // 'map' | 'library' | null
+var overlay = null;        // 'map' | 'library' | 'session' | null
+var tacticsIndex = [];     // /api/tactics  [{id,name,summary}]
+var orgPublic = null;      // /api/org      {id,name,roster}
+var selTactics = {};       // id -> true (session picker selection)
+var prefTarget = null;     // preferred-target id for the next session
 
 // ── derive the full UI model from events[0..count) ──────────────────────────
 function rosterById(id) {
@@ -548,7 +552,14 @@ function renderScenarioPanel() {
     var on = sanctioned.indexOf(name) !== -1 && !tacticsOff[name];
     h += '<button class="tchip' + (on ? '' : ' off') + '" data-act="tactic" data-arg="' + name + '">' + name + '</button>';
   }
-  h += '</div><div class="seclabel">OPERATION LOG</div>';
+  h += '</div>';
+  if (scn && scn.sessionTactics && scn.sessionTactics.length) {
+    h += '<div class="seclabel">TACTICS IN SESSION</div>';
+    for (var st = 0; st < scn.sessionTactics.length; st++) {
+      h += '<div class="scnrow"><span class="dot"></span><div style="flex:1;min-width:0;"><div class="id">' + esc(scn.sessionTactics[st].name) + '</div></div></div>';
+    }
+  }
+  h += '<div class="seclabel">OPERATION LOG</div>';
   if (!runs.length) h += '<div class="lootempty">No recorded runs.</div>';
   for (var r = 0; r < runs.length; r++) {
     h += '<div class="runrow' + (runs[r].id === runId ? ' sel' : '') + '" data-act="openrun" data-arg="' + esc(runs[r].id) + '">⤺ ' + esc(runs[r].id) + '</div>';
@@ -678,8 +689,8 @@ function renderProcess(m) {
   if (!runId) {
     $('procBody').innerHTML = '<div class="standby"><div class="glyph">⬢</div>' +
       '<div class="t1">NO OPERATION LOADED</div>' +
-      '<div class="t2">deploy a scenario to start a new session,<br>or reopen a past run from the operation log.</div>' +
-      '<button class="go" data-act="overlay" data-arg="library">⤢ OPEN SCENARIO LIBRARY</button></div>';
+      '<div class="t2">select tactics and an optional target to start a new session,<br>or reopen a past run from the operation log.</div>' +
+      '<button class="go" data-act="newsession">⤢ NEW SESSION</button></div>';
     return;
   }
   var h = '<div class="prow"><div class="prail"><div class="goaldot">🎯</div><div class="pline goal"></div></div><div class="pbodycell" style="padding-bottom:18px;">' +
@@ -876,10 +887,64 @@ function renderLibraryOverlay() {
   h += '</div></div></div>';
   return h;
 }
+function renderSessionOverlay() {
+  var canStart = Object.keys(selTactics).some(function (k) { return selTactics[k]; });
+  var h = '<div class="ovbk" data-act="closeoverlay"><div class="ovbox" data-stop="1" style="width:940px;max-width:94vw;">' +
+    '<div class="ovhead"><span style="font-size:15px;">⧉</span><span class="ttl">NEW SESSION</span><div style="flex:1;"></div>' +
+    '<button class="ovclose" data-act="closeoverlay">✕</button></div>' +
+    '<div style="padding:18px 20px;">';
+  // tactics
+  h += '<div class="seclabel" style="margin-top:0;">TACTICS · SELECT ONE OR MORE</div><div class="libgrid" style="padding:0;width:auto;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">';
+  for (var i = 0; i < tacticsIndex.length; i++) {
+    var t = tacticsIndex[i], on = !!selTactics[t.id];
+    h += '<div class="libcard' + (on ? ' live' : '') + '" data-act="seltactic" data-arg="' + esc(t.id) + '" style="cursor:pointer;min-height:auto;">' +
+      '<div class="top"><span class="dot"></span><span class="id">' + esc(t.name) + '</span>' +
+      '<span class="tag">' + (on ? '✓ ON' : 'OFF') + '</span></div>' +
+      '<div class="gl" style="min-height:auto;">' + esc(t.summary || '') + '</div></div>';
+  }
+  if (!tacticsIndex.length) h += '<div class="lootempty">No tactics found in data/tactics.</div>';
+  h += '</div>';
+  // workers map (preferred target)
+  h += '<div class="seclabel">WORKERS MAP · CLICK TO MARK A PREFERRED TARGET (OPTIONAL)</div>';
+  h += renderSessionMap();
+  // start
+  h += '<div style="display:flex;justify-content:flex-end;margin-top:16px;">' +
+    '<button class="go" data-act="startsession" style="' + (canStart ? '' : 'opacity:.4;pointer-events:none;') + '">▸ START SESSION</button></div>';
+  h += '</div></div></div>';
+  return h;
+}
+function renderSessionMap() {
+  if (!orgPublic || !orgPublic.roster.length) return '<div class="lootempty">No org loaded (data/org.json).</div>';
+  var depts = [], byDept = {};
+  for (var i = 0; i < orgPublic.roster.length; i++) {
+    var d = orgPublic.roster[i].department || 'General';
+    if (!byDept[d]) { byDept[d] = []; depts.push(d); }
+    byDept[d].push(orgPublic.roster[i]);
+  }
+  var h = '<div style="display:flex;flex-wrap:wrap;gap:10px;">';
+  for (var di = 0; di < depts.length; di++) {
+    h += '<div style="flex:1;min-width:200px;border:1px solid #16283a;border-radius:10px;padding:10px;">' +
+      '<div class="depthead"><span class="nm">' + esc(depts[di]) + '</span></div>';
+    var ppl = byDept[depts[di]];
+    for (var p = 0; p < ppl.length; p++) {
+      var w = ppl[p], sel = prefTarget === w.id;
+      h += '<div class="wcard' + (sel ? ' sel' : '') + '" data-act="preftarget" data-arg="' + esc(w.id) + '" style="margin-top:6px;">' +
+        avatarHtml(w.name, STAT.idle, 26) +
+        '<div style="flex:1;min-width:0;"><div class="nm">' + esc(w.name) + '</div><div class="tt">' + esc(w.title) + '</div></div>' +
+        (sel ? '<span class="tag" style="color:#fbbf24;border:1px solid rgba(251,191,36,.5);border-radius:5px;padding:2px 6px;font-family:\\'IBM Plex Mono\\',monospace;font-size:8.5px;">★ TARGET</span>' : '') +
+        '</div>';
+    }
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
 function renderOverlay(m) {
   var host = $('overlayHost');
   if (!overlay || (overlay === 'map' && (!scn || !scn.roster.length))) { host.innerHTML = ''; return; }
-  host.innerHTML = overlay === 'map' ? renderMapOverlay(m) : renderLibraryOverlay();
+  host.innerHTML = overlay === 'map' ? renderMapOverlay(m)
+    : overlay === 'session' ? renderSessionOverlay()
+    : renderLibraryOverlay();
 }
 
 // ── master render ───────────────────────────────────────────────────────────
@@ -919,6 +984,9 @@ document.addEventListener('click', function (e) {
   else if (act === 'openrun') { connect(arg); return; }
   else if (act === 'deploy') { deploy(arg); return; }
   else if (act === 'newsession') { newSession(); return; }
+  else if (act === 'seltactic') { selTactics[arg] = !selTactics[arg]; }
+  else if (act === 'preftarget') { prefTarget = (prefTarget === arg ? null : arg); }
+  else if (act === 'startsession') { startSession(); return; }
   render();
 });
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && overlay) { overlay = null; render(); } });
@@ -938,7 +1006,19 @@ function connect(id) {
   if (es) es.close();
   runId = id; events = []; terminal = null; failedMsg = null; expandedOverride = {}; worker = null;
   localStorage.setItem('vish_run', id);
-  loadScenarioDetail(id.replace(/-\\d+$/, ''), render);
+  if (/^session-/.test(id)) {
+    fetch('/api/run-meta?run=' + encodeURIComponent(id)).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (meta) {
+        if (meta && meta.org) {
+          scn = { id: meta.org.id, goal: (meta.tactics || []).map(function (t) { return t.name; }).join(' + '),
+            maxHops: meta.maxHops || 5, roster: meta.org.roster, tactics: ALL_TECHNIQUES, persona: null,
+            sessionTactics: meta.tactics || [], preferredTargetId: meta.preferredTargetId || null };
+        } else { scn = null; }
+        render();
+      });
+  } else {
+    loadScenarioDetail(id.replace(/-\\d+$/, ''), render);
+  }
   es = new EventSource('/api/stream?run=' + encodeURIComponent(id));
   es.onopen = function () { linkUp = true; events = []; terminal = null; render(); };
   es.onmessage = function (msg) { events.push(JSON.parse(msg.data)); render(); };
@@ -952,15 +1032,22 @@ function connect(id) {
   es.onerror = function () { if (es.readyState === EventSource.CLOSED) { linkUp = false; render(); } };
   render();
 }
-// + NEW SESSION: drop the current operation and start over from a clean console;
-// the scenario library opens so the next run is one click away.
+// + NEW SESSION: drop the current operation and open the tactics-first session
+// window — multi-select tactics + mark an optional preferred target, then launch.
 function newSession() {
   if (es) es.close();
   es = null; linkUp = false; runId = null; events = []; terminal = null; failedMsg = null;
-  expandedOverride = {}; worker = null; scn = null; overlay = 'library';
+  expandedOverride = {}; worker = null; scn = null;
+  selTactics = {}; prefTarget = null;
   localStorage.removeItem('vish_run');
-  loadIndex(render);
-  render();
+  Promise.all([
+    fetch('/api/tactics').then(function (r) { return r.json(); }),
+    fetch('/api/org').then(function (r) { return r.ok ? r.json() : null; }),
+  ]).then(function (res) {
+    tacticsIndex = res[0] || []; orgPublic = res[1];
+    overlay = 'session';
+    loadIndex(render);
+  });
 }
 function deploy(scenarioId) {
   overlay = null; render();
@@ -970,6 +1057,18 @@ function deploy(scenarioId) {
       if (d.error) { failedMsg = d.error; render(); return; }
       loadIndex(function () { connect(d.id); });
     });
+}
+function startSession() {
+  var ids = Object.keys(selTactics).filter(function (k) { return selTactics[k]; });
+  if (!ids.length) return;
+  overlay = null; render();
+  fetch('/api/session', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tacticIds: ids, preferredTargetId: prefTarget || undefined }),
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d.error) { failedMsg = d.error; render(); return; }
+    loadIndex(function () { connect(d.id); });
+  });
 }
 
 loadIndex(function () {
