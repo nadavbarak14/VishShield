@@ -15,6 +15,9 @@ import { AiOperator } from '../operator/aiOperator.js';
 import { buildDemoRunArgs } from './demoScenario.js';
 import { runOperation } from './runOperation.js';
 import { scenarioKind } from './scenarioKind.js';
+import { DialClient } from '../dial/dialClient.js';
+import { DialConductor } from '../dial/dialConductor.js';
+import type { CallConductor } from '../conductor/callConductor.js';
 import type { EventBus } from '../events/eventBus.js';
 import type { OperationRun, Person, Transcript } from '../types.js';
 
@@ -119,6 +122,25 @@ async function runOperationScenario(scenario: any, bus: EventBus): Promise<Opera
   const mockMap: Record<string, MockPerson> = {};
   for (const p of scenario.roster) mockMap[p.id] = { name: p.name, secret: p.secret, hint: p.hint };
 
+  const callBackend = process.env.VISH_CALL_BACKEND ?? 'simulated';
+  let conductor: CallConductor | undefined;
+  if (callBackend === 'dial') {
+    const apiKey = process.env.DIAL_API_KEY;
+    const fromNumberId = process.env.DIAL_FROM_NUMBER_ID;
+    if (!apiKey || !fromNumberId) {
+      throw new Error('VISH_CALL_BACKEND=dial requires DIAL_API_KEY and DIAL_FROM_NUMBER_ID.');
+    }
+    conductor = new DialConductor({
+      client: new DialClient({ apiKey, baseUrl: process.env.DIAL_BASE_URL }),
+      fromNumberId,
+      extractor: new SecretLeakExtractor(),
+      bus,
+      dryRun: process.env.VISH_DIAL_DRY_RUN !== 'false',
+      pollMs: process.env.DIAL_POLL_MS ? Number(process.env.DIAL_POLL_MS) : undefined,
+      timeoutMs: process.env.DIAL_TIMEOUT_MS ? Number(process.env.DIAL_TIMEOUT_MS) : undefined,
+    });
+  }
+
   const operationId = `${scenario.campaignId}-${Date.now()}`;
   return runOperation({
     operationId,
@@ -128,6 +150,7 @@ async function runOperationScenario(scenario: any, bus: EventBus): Promise<Opera
     operator: (process.env.VISH_OPERATOR_BACKEND ?? 'ai') === 'claude'
       ? new ClaudeOperator(scenario.goal, roster)
       : new AiOperator(scenario.goal, roster),
+    conductor,
     makeAgent: useMock ? () => new MockVoiceAgent() : () => new ClaudeAgent(),
     makeTarget: useMock
       ? (id) => new MockVoiceTarget(mockMap[id])
