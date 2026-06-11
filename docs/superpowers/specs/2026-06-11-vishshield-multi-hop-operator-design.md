@@ -80,14 +80,14 @@ two new fields on existing types. The single-call path (`scenario-a`, `runCampai
 | `Person`, `Operator`, `OperatorDecision`, `OperationRun`, `CallResult` (in `types.ts`) | new types | Roster + operator contracts; additive `hop.started`/`hop.ended` events |
 | `src/knowledge/rosterKnowledgeBase.ts` | new | `Person[]`-backed KB: `getContext`, `getPerson(id)`, `listPeople()` |
 | `src/operator/operator.ts` | new | `interface Operator { decideNext(input): Promise<OperatorDecision> }` |
-| `src/operator/claudeOperator.ts` | new | The persistent `claude -p --resume` session |
+| `src/operator/claudeOperator.ts` | new | The persistent `claude -p --resume` session; decision-parsing factored out for offline unit test |
 | `src/operator/scriptedOperator.ts` | new | Canned decisions for offline CI |
 | `src/claude/runClaude.ts` | extend (additive) | Add a session-capable call returning `{ result, sessionId }` and accepting `resume?` |
 | `src/orchestrator/runOperation.ts` | new | The operator loop + per-operation persistence |
 | `src/orchestrator/runScenario.ts` | small branch | If scenario has `roster` + `goal` → `runOperation`; else existing single-call path |
 | `data/scenarios/scenario-b.json` | new | Multi-hop scenario: roster + engagement goal (no hard-coded chain) |
 | `src/cli/play.ts` | small | Handle an `OperationRun` (print per-hop) as well as a `SavedRun` |
-| `tests/rosterKnowledgeBase.test.ts`, `tests/runOperation.test.ts`, `tests/scriptedOperator.test.ts` | new | Offline, scripted, CI-gating |
+| `tests/rosterKnowledgeBase.test.ts`, `tests/runOperation.test.ts`, `tests/scriptedOperator.test.ts`, `tests/claudeOperator.parse.test.ts` | new | Offline, scripted, CI-gating (see §6) |
 
 ### Contracts (the seams that stay fixed)
 
@@ -103,7 +103,13 @@ interface Person {
 }
 
 // Roster KB. getContext() keeps the base KB contract so the talker is grounded per call.
+// getContext(personId) PROJECTS the public profile into Fact[] (so runCampaign, which does
+// `kb.getContext(targetId) → session.facts`, reuses unchanged). Projection is exactly:
+//   name→{key:'name'}, title→{key:'title'}, phone→{key:'phone'},
+//   department→{key:'department'} (if set), publicInfo→{key:'public_info'} (if set).
+// It NEVER includes the fixture secret/targetPersona. Unknown id → [].
 interface RosterKnowledgeBase extends KnowledgeBase {
+  getContext(personId: string): Promise<Fact[]>;   // projection above
   getPerson(id: string): Promise<Person | undefined>;
   listPeople(): Promise<Person[]>;
 }
@@ -126,6 +132,38 @@ type OperatorDecision = {
 
 interface Operator {
   decideNext(input: { last?: CallResult }): Promise<OperatorDecision>;
+}
+
+// runOperation is fully dependency-injected so the offline test swaps in scripted
+// implementations and a temp runsDir — NOTHING live is constructed inside the loop.
+interface RunOperationArgs {
+  operationId: string;
+  goal: string;
+  roster: RosterKnowledgeBase;
+  // sim-only fixtures keyed by personId; NEVER exposed to operator or talker:
+  fixtures: Record<string, { secret?: string; targetPersona: string }>;
+  operator: Operator;                                   // ScriptedOperator in tests
+  makeAgent: (persona: string) => Agent;                // () => new ClaudeAgent() | ScriptedAgent([...])
+  makeTarget: (personId: string, persona: string, secret?: string) => Target;
+  makeCallEngine: (target: Target) => CallEngine;       // default: new MockCallEngine(target)
+  conversationStore: ConversationStore;
+  keyInfoStore: KeyInfoStore;
+  extractor: KeyInfoExtractor;
+  bus: EventBus;
+  maxHops?: number;                                     // hard cap, default 5
+  runsDir?: string;                                     // default 'data/runs'; test points at a tmp dir
+}
+
+// Structural superset of the three fields play.ts + web/server.ts read off a run,
+// so both consumers keep working against `SavedRun | OperationRun`.
+interface OperationRun {
+  id: string;
+  goal: string;
+  hops: { hopId: number; personId: string; persona: string;
+          objective: Objective; transcript: Transcript;
+          endedReason: string; leaked: boolean }[];
+  keyInfo: Fact[];          // flattened union across hops (read by play.ts + web)
+  compromised: boolean;     // any hop leaked (read by web verdict)
 }
 ```
 
@@ -153,41 +191,100 @@ data/runs/<operationId>/
     hop-2-<personId>.json
 ```
 
-`operation.json` exposes flattened `keyInfo: Fact[]` and `compromised: boolean` so the
-existing web `done` handler and `play.ts` keep working with **no changes** — a chained
-operation just streams multiple calls into the same feed and reports a combined verdict.
+`operation.json` exposes flattened `keyInfo: Fact[]` and `compromised: boolean`. Because
+`OperationRun` is a structural superset of the fields the consumers actually read
+(`web/server.ts` reads `run.compromised` + `run.keyInfo`; `play.ts` reads `run.keyInfo` +
+`run.id`), the **web `done` handler needs no change** and a chained operation streams its
+multiple calls into the same feed with a combined verdict. The **one small `play.ts`
+edit**: its final log line currently prints `data/runs/${run.id}.json`; for an operation the
+artifact is a *directory* (`data/runs/<id>/`), so that message must branch on the run shape.
+
+**New events** (additive `ConversationEvent` variants): `hop.started` and `hop.ended`, each
+carrying `{ operationId, hopId, personId }`. Existing visualizer/web switches ignore unknown
+variants (no exhaustive `never` guard exists), so this is safe; per-hop UI styling is
+deferred (§7).
 
 ## 5. Data flow (per operation)
 
-1. `runScenario` sees `roster` + `goal` → builds `RosterKnowledgeBase`, a `ClaudeOperator`
-   (or `ScriptedOperator` in tests), and calls `runOperation`.
-2. `runOperation` loops (cap `MAX_HOPS`, e.g. 5):
-   a. `operator.decideNext({ last })` → `{ important, action }`.
-   b. Append `important` (if non-empty) to `memory.md`.
-   c. `stop` → break. `call` → look up the person.
-   d. Emit `hop.started`; run **one** call via `runCampaign` with a **fresh** `ClaudeAgent`
-      built from `action.persona/objective/tactics`, against a `ClaudeTarget` built from the
-      person's fixture `targetPersona` + `secret`; emit existing `call.*`/`*.turn` events.
-   e. Save the transcript to `calls/`; set `last = { personId, transcript, leaked }`;
+1. `runScenario` discriminates on the scenario shape:
+   `Array.isArray(scenario.roster) && typeof scenario.goal === 'string'` → operation path;
+   else the existing single-call path (`scenario-a` has neither, so it is untouched). A
+   scenario with `roster` but no `goal` (or vice-versa) is a **hard error**, never a silent
+   fall-through. On the operation path it builds the `RosterKnowledgeBase` and `fixtures`
+   map from the roster, a `ClaudeOperator`, and live factories
+   (`makeAgent = () => new ClaudeAgent()`, `makeTarget = (_, persona, secret) =>
+   new ClaudeTarget(persona, secret)`, `makeCallEngine = (t) => new MockCallEngine(t)`),
+   then calls `runOperation`. Tests call `runOperation` directly with scripted args.
+
+2. `runOperation` loops, `n = 1..maxHops` (default 5 — a **hard cap** that forces a stop
+   with `reason: 'max_hops'` even if the operator never says stop). First turn passes
+   `last: undefined` (never a fake empty `CallResult`):
+   a. `decision = await operator.decideNext({ last })`. If the operator (Claude) returns
+      unparseable/invalid output, treat it as `stop` with `reason: 'parse_error'` (see §6).
+   b. If `decision.important` is non-empty, append `## hop N\n<important>\n` to `memory.md`.
+   c. `action.type === 'stop'` → break. Otherwise look up `person = roster.getPerson(id)`;
+      an unknown `personId` → record it and `stop` with `reason: 'unknown_person'`.
+   d. **Merge the fixture secret** (operator never knows it):
+      `objective = { ...action.objective, secret: fixtures[id]?.secret }`.
+      Emit `hop.started`. Run **one** call via the existing `runCampaign`, all deps from
+      `RunOperationArgs`:
+      ```
+      const target = makeTarget(id, fixtures[id].targetPersona, objective.secret);
+      const { conversation, keyInfo } = await runCampaign({
+        conversationId: `${operationId}-hop-${n}`, campaignId: operationId,
+        targetId: id, objective, allowedTactics: action.tactics, persona: action.persona,
+        agent: makeAgent(action.persona), callEngine: makeCallEngine(target),
+        kb: roster, conversationStore, keyInfoStore, extractor, bus,
+      });
+      const leaked = keyInfo.length > 0;   // SecretLeakExtractor fired on objective.secret
+      ```
+      Existing `call.*`/`*.turn` events still emit from inside `runConversation`.
+   e. Write the transcript to `<runsDir>/<op>/calls/hop-N-<id>.json`; append the hop to the
+      run; set `last = { personId: id, transcript: conversation.transcript, leaked }`;
       emit `hop.ended`.
-3. Save `operation.json`; return an `OperationRun`.
+3. Write `<runsDir>/<op>/operation.json` (`mkdir … { recursive: true }`); return the
+   `OperationRun` (with flattened `keyInfo` and `compromised = hops.some(h => h.leaked)`).
 
 ## 6. Testing
 
-Same two-path strategy as the base design.
+Same two-path strategy as the base design. **The multi-hop flow is fully covered offline**
+because `runOperation` is dependency-injected (§3 `RunOperationArgs`) — the test passes a
+`ScriptedOperator`, scripted agent/target factories, and a temp `runsDir`, so nothing live
+is constructed. This is the user's explicit requirement.
 
-- **Offline CI (gating):** a `ScriptedOperator` returns a fixed decision sequence
-  (call A → call B → stop), talker + target are `Scripted*`. `runOperation` runs the full
-  loop with **no network/LLM**: assert the operator is driven correctly, transcripts land
-  in `calls/`, `memory.md` accumulates the operator's `important` strings, the right
-  `hop.*`/`call.*` events fire in order, and `operation.json` reports the combined verdict.
-  `rosterKnowledgeBase.test.ts` covers `getPerson`/`listPeople`/`getContext` and the
-  public/fixture split (no `secret` leaks through `getPerson`).
-- **Live "play" (manual, subscription):** `npm run play data/scenarios/scenario-b.json`
-  runs the real `ClaudeOperator` driving real Claude calls. Not in CI.
+**`tests/runOperation.test.ts` (gating, no network/LLM).** A `ScriptedOperator` yields
+`call(A) → call(B) → stop`; the scripted target for A leaks its secret, for B does not.
+Assert:
+- `decideNext` called 3×; **hop 1 received `last === undefined`**; hop 2 received
+  `last.personId === 'A'` with `last.leaked === true`.
+- Transcript files exist at `<runsDir>/<op>/calls/hop-1-A.json` and `hop-2-B.json` with the
+  expected turns and per-hop `leaked` flag.
+- `<runsDir>/<op>/memory.md` contains the two non-empty `important` strings in order under
+  `## hop N` headers, and **nothing for the first turn** (its `important` is `''`).
+- Events fire in order: `hop.started(A)`, `call.started`, `agent.turn`/`target.turn`…,
+  `call.ended`, `hop.ended(A)`, then the same block for B. No `hop.*` for the final `stop`.
+- `operation.json`: `compromised === true` (A leaked), `keyInfo` is the flattened union, and
+  the people-called order is `['A','B']`.
+- A second case: `ScriptedOperator` that never stops → loop halts at `maxHops` with the last
+  recorded reason `max_hops`.
 
-`runClaude`'s new session-capable variant is exercised only by the live path; the scripted
-operator needs no Claude, so CI stays fast and offline.
+**`tests/scriptedOperator.test.ts`** — the scripted operator returns its canned sequence and
+ignores `last` deterministically.
+
+**`tests/rosterKnowledgeBase.test.ts`** — `getPerson`/`listPeople` return public profiles;
+`getContext(id)` returns the exact `Fact[]` projection (§3); **no `secret`/`targetPersona`
+leaks through any method**; unknown id → `undefined`/`[]`.
+
+**`tests/claudeOperator.parse.test.ts` (offline, no network).** Factor the decision parser
+out of the live call so it is unit-testable against fixed strings: valid JSON → decision;
+non-JSON / unknown `action.type` → a safe `stop('parse_error')`. (The `ClaudeOperator`'s
+actual `claude -p --resume` call is exercised only by the live play run.)
+
+**Live "play" (manual, subscription):** `npm run play data/scenarios/scenario-b.json` runs
+the real `ClaudeOperator` driving real Claude calls. Not in CI.
+
+`runClaude`'s new session-capable variant runs only on the live path; everything in CI is
+scripted, so the suite stays fast and offline.
 
 ## 7. Scope
 
@@ -200,10 +297,21 @@ roster, relationship graphs, a smarter extractor, dashboard styling for hop sepa
 (the `hop.*` events are emitted, but the web UI styling for them is deferred — chained
 calls already render as a continuous feed).
 
-## 8. Open items
+## 8. Resolved decisions & remaining open items
 
-- `MAX_HOPS` default and per-call max-turns interplay (start at 5 hops × existing 20 turns).
-- Exact operator system prompt (engagement framing, decision JSON schema, the
-  authorized-simulation guardrail) — drafted during implementation.
-- Whether `memory.md` is also re-fed to the operator on resume as a safety net, or we fully
-  trust the session. Default: trust the session; `memory.md` is the durable artifact.
+**Resolved (post-review):**
+- `maxHops` default **5**, enforced as a hard cap (forces `stop: 'max_hops'`); per-call turns
+  stay at the existing 20.
+- Malformed/invalid operator output → safe `stop: 'parse_error'`; unknown `personId` →
+  `stop: 'unknown_person'`. Decision-parsing is factored out for offline unit testing.
+- `memory.md` format: `## hop N\n<important>\n`, appended only when `important` is non-empty.
+- `OperationRun` is a structural superset of the consumer-read fields; `play.ts` gets one
+  small log-line branch (artifact is a directory, not a `.json`).
+- Memory model: **trust the operator session**; `memory.md` is the durable human-readable
+  artifact, not re-fed on resume.
+
+**Remaining (drafted during implementation):**
+- Exact operator system prompt — engagement framing, the strict decision-JSON schema the
+  parser expects, and the authorized-simulation guardrail.
+- `scenario-b` content: the roster (public profiles) + per-person fixtures
+  (`secret`, `targetPersona`) + the engagement `goal`.
