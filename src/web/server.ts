@@ -879,17 +879,20 @@ function renderSessionOverlay() {
     }
     if (!tacticsIndex.length) h += '<div class="lootempty">No tactics found in data/tactics.</div>';
     h += '</div>';
-    h += '<div style="display:flex;justify-content:flex-end;align-items:center;gap:14px;margin-top:18px;">' +
-      '<span class="maphint" style="margin:0;">' + selCount + ' selected</span>' +
-      '<button class="go" data-act="sessnext" style="' + (selCount ? '' : 'opacity:.4;pointer-events:none;') + '">NEXT · CHOOSE TARGET ▸</button></div>';
+    var nextStyle = selCount
+      ? 'background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:#04121f;border:1px solid #38bdf8;box-shadow:0 8px 22px rgba(56,189,248,.3);cursor:pointer;'
+      : 'background:#0c1422;color:#46566f;border:1px solid #1c2638;box-shadow:none;cursor:not-allowed;';
+    h += '<div style="display:flex;justify-content:flex-end;align-items:center;gap:16px;margin-top:20px;">' +
+      '<span class="maphint" style="margin:0;">' + selCount + ' tactic' + (selCount === 1 ? '' : 's') + ' selected</span>' +
+      '<button data-act="sessnext" style="font-family:\\'IBM Plex Mono\\',monospace;font-size:11px;letter-spacing:1px;font-weight:700;padding:12px 24px;border-radius:10px;' + nextStyle + '">NEXT · CHOOSE TARGET ▸</button></div>';
   } else {
     var pname = '';
     for (var k = 0; orgPublic && k < orgPublic.roster.length; k++) if (orgPublic.roster[k].id === prefTarget) pname = orgPublic.roster[k].name;
     h += '<div class="seclabel" style="margin-top:0;">WORKERS MAP · CLICK A NODE TO TARGET (OPTIONAL) · ' + selCount + ' TACTIC' + (selCount === 1 ? '' : 'S') + ' SELECTED</div>';
     h += renderSessionMap();
-    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;">' +
-      '<button class="go" data-act="sessback" style="border-color:#243049;color:#9aa6ba;background:#0e1422;box-shadow:none;">◂ BACK</button>' +
-      '<button class="go" data-act="startsession">▸ START SESSION' + (pname ? ' · TARGET ' + esc(pname) : ' · NO PREFERRED TARGET') + '</button></div>';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">' +
+      '<button data-act="sessback" style="font-family:\\'IBM Plex Mono\\',monospace;font-size:11px;letter-spacing:1px;font-weight:600;padding:11px 18px;border-radius:10px;background:#0e1422;color:#9aa6ba;border:1px solid #243049;cursor:pointer;">◂ BACK</button>' +
+      '<button data-act="startsession" style="font-family:\\'IBM Plex Mono\\',monospace;font-size:11px;letter-spacing:1px;font-weight:700;padding:12px 24px;border-radius:10px;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#1a1206;border:1px solid #fbbf24;box-shadow:0 8px 22px rgba(251,191,36,.28);cursor:pointer;">▸ START SESSION' + (pname ? ' · ★ ' + esc(pname) : '') + '</button></div>';
   }
   h += '</div></div></div>';
   return h;
