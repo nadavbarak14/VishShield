@@ -174,4 +174,17 @@ describe('runOperation (offline, scripted)', () => {
     const run = await runOperation({ ...baseArgs(runsDir, operator, bus), maxHops: 1 });
     expect(run.hops.map((h) => h.personId)).toEqual(['a']);
   });
+
+  it('passes session tactics + preferredTargetId through to the run', async () => {
+    const runsDir = await mkdtemp(join(tmpdir(), 'vish-'));
+    const bus = new InMemoryEventBus();
+    const operator = new ScriptedOperator([stop]);
+    const run = await runOperation({
+      ...baseArgs(runsDir, operator, bus),
+      tactics: [{ id: 't1', name: 'T One' }],
+      preferredTargetId: 'a',
+    });
+    expect(run.tactics).toEqual([{ id: 't1', name: 'T One' }]);
+    expect(run.preferredTargetId).toBe('a');
+  });
 });

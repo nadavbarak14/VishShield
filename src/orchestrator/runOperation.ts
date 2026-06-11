@@ -39,6 +39,9 @@ export interface RunOperationArgs {
    *  then the loop stops — it can't keep dialing after success. Off by default so the
    *  multi-call test fixtures still run their full scripted sequence. */
   stopOnGoal?: boolean;
+  /** Session display metadata, copied verbatim onto the OperationRun. */
+  tactics?: { id: string; name: string }[];
+  preferredTargetId?: string;
 }
 
 export async function runOperation(args: RunOperationArgs): Promise<OperationRun> {
@@ -185,6 +188,8 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
     hops,
     keyInfo,
     compromised: hops.some((h) => h.leaked),
+    tactics: args.tactics,
+    preferredTargetId: args.preferredTargetId,
   };
   await writeFile(join(opDir, 'operation.json'), JSON.stringify(run, null, 2));
   return run;
