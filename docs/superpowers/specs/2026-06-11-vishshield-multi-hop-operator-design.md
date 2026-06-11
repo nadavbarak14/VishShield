@@ -74,8 +74,14 @@ no new session plumbing). We feed it the engagement goal + the roster + the oper
 running distilled notes + the last call transcript; it returns the next distilled note and
 the next action. The notes are the single, inspectable source of truth. This keeps the
 operator on the Pro/Max subscription (no API key, no Agent SDK), forces it to distill what
-matters (the behavior we want), and stays trivially testable with a scripted operator. Raw
-transcripts remain on disk if we ever want to feed more than the latest one.
+matters (the behavior we want), and stays trivially testable with a scripted operator.
+
+**Full-transcript access on demand (`recall`).** So the operator is never *limited* to its
+notes, it has a third action: `recall(hopId)`. When it needs the verbatim record of an
+earlier call, it returns `recall`; `runOperation` serves that hop's full transcript (from
+the saved hops — no new call placed, no hop counted) and asks again. Recalls are bounded
+per decision (default 3) to prevent loops. So `memory.md` is the working memory, and every
+full transcript stays reachable when the distilled note isn't enough.
 
 ## 3. New / changed components
 
@@ -134,11 +140,16 @@ type OperatorDecision = {
   action:
     | { type: 'call'; personId: string; persona: string;
         objective: { id: string; description: string }; tactics: Tactic[] }
-    | { type: 'stop'; reason: string };
+    | { type: 'stop'; reason: string }
+    | { type: 'recall'; hopId: number };   // re-read a past call's full transcript
 };
 
 interface Operator {
-  decideNext(input: { last?: CallResult }): Promise<OperatorDecision>;
+  decideNext(input: {
+    last?: CallResult;                                  // result of the call just placed
+    recalled?: { hopId: number; transcript: Transcript }; // transcript served for a recall
+    history?: { hopId: number; personId: string }[];    // past calls available to recall
+  }): Promise<OperatorDecision>;
 }
 
 // runOperation is fully dependency-injected so the offline test swaps in scripted
@@ -317,6 +328,9 @@ calls already render as a continuous feed).
 - Memory model: the operator keeps its distilled notes and re-feeds them (plus the latest
   transcript) into a **fresh `claude -p` each turn — no `--resume`**. `memory.md` is the
   source of truth and the durable artifact.
+- Full-transcript access: the operator can `recall(hopId)` to be served any past call's
+  verbatim transcript (bounded to 3 recalls per decision); recalls place no call and count
+  no hop.
 
 **Remaining (drafted during implementation):**
 - Exact operator system prompt — engagement framing, the strict decision-JSON schema the

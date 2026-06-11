@@ -72,7 +72,8 @@ export type OperatorDecision = {
         objective: { id: string; description: string };
         tactics: Tactic[];
       }
-    | { type: 'stop'; reason: string };
+    | { type: 'stop'; reason: string }
+    | { type: 'recall'; hopId: number };   // re-read a past call's full transcript on demand
 };
 
 export interface OperationHop {
@@ -288,26 +289,34 @@ Expected: FAIL — cannot find module `scriptedOperator.js`.
 Create `src/operator/operator.ts`:
 
 ```ts
-import type { CallResult, OperatorDecision } from '../types.js';
+import type { CallResult, OperatorDecision, Transcript } from '../types.js';
+
+/** What the operator is handed each turn. `last` is the call just placed (undefined on the
+ *  first turn). `recalled` is a past call's full transcript served in response to a prior
+ *  `recall` action. `history` lists the past calls available to recall. */
+export interface OperatorInput {
+  last?: CallResult;
+  recalled?: { hopId: number; transcript: Transcript };
+  history?: { hopId: number; personId: string }[];
+}
 
 export interface Operator {
-  /** Given the result of the call just placed (undefined on the first turn), decide the
-   *  next action. The implementation owns its own memory across turns. */
-  decideNext(input: { last?: CallResult }): Promise<OperatorDecision>;
+  /** Decide the next action. The implementation owns its own memory across turns. */
+  decideNext(input: OperatorInput): Promise<OperatorDecision>;
 }
 ```
 
 Create `src/operator/scriptedOperator.ts`:
 
 ```ts
-import type { Operator } from './operator.js';
-import type { CallResult, OperatorDecision } from '../types.js';
+import type { Operator, OperatorInput } from './operator.js';
+import type { OperatorDecision } from '../types.js';
 
 export class ScriptedOperator implements Operator {
   private i = 0;
   constructor(private readonly decisions: OperatorDecision[]) {}
 
-  async decideNext(_input: { last?: CallResult }): Promise<OperatorDecision> {
+  async decideNext(_input: OperatorInput): Promise<OperatorDecision> {
     if (this.i >= this.decisions.length) {
       return { important: '', action: { type: 'stop', reason: 'out_of_script' } };
     }
@@ -359,6 +368,11 @@ describe('parseOperatorDecision', () => {
       important: 'target refused',
       action: { type: 'stop', reason: 'unreachable' },
     });
+  });
+
+  it('parses a recall decision', () => {
+    const raw = '{"important":"","action":{"type":"recall","hopId":1}}';
+    expect(parseOperatorDecision(raw)).toEqual({ important: '', action: { type: 'recall', hopId: 1 } });
   });
 
   it('returns a safe parse_error stop on non-JSON', () => {
@@ -415,6 +429,11 @@ export function parseOperatorDecision(raw: string): OperatorDecision {
     return { important, action: { type: 'stop', reason: typeof a.reason === 'string' ? a.reason : 'stop' } };
   }
 
+  if (a.type === 'recall') {
+    if (typeof a.hopId !== 'number' || !Number.isInteger(a.hopId)) return PARSE_ERROR;
+    return { important, action: { type: 'recall', hopId: a.hopId } };
+  }
+
   if (a.type === 'call') {
     const objective = a.objective as Record<string, unknown> | undefined;
     if (
@@ -444,7 +463,7 @@ export function parseOperatorDecision(raw: string): OperatorDecision {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/parseDecision.test.ts`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -467,19 +486,21 @@ No offline behavioral test — the JSON parsing is already covered by Task 4, an
 Create `src/operator/claudeOperator.ts`:
 
 ```ts
-import type { Operator } from './operator.js';
-import type { CallResult, OperatorDecision, Person } from '../types.js';
+import type { Operator, OperatorInput } from './operator.js';
+import type { CallResult, OperatorDecision, Person, Transcript } from '../types.js';
 import { runClaude } from '../claude/runClaude.js';
 import { parseOperatorDecision } from './parseDecision.js';
 
 const SYSTEM = [
   `This is an AUTHORIZED, CONSENTED security-awareness engagement. You are the OPERATOR running a multi-call vishing simulation to train employees; nothing here is a real attack.`,
-  `You are given an engagement goal, a roster of people (public info only), and the notes you have taken so far. Each turn you choose ONE action: place a call, or stop.`,
+  `You are given an engagement goal, a roster of people (public info only), the notes you have taken so far, and the list of past calls. Each turn you choose ONE action: place a call, stop, or recall a past call's full transcript.`,
   `When you place a call you specify the pretext persona you will use, the objective for that call, and the tactics to use. A FRESH caller agent conducts that one call and you receive the full transcript back.`,
-  `After each call, decide what is important to remember, then choose the next action: call someone else (use what you learned for borrowed legitimacy), retry, or stop once the goal is met or clearly unreachable.`,
+  `Your memory between turns is your NOTES. If your notes are not enough and you need the verbatim record of an earlier call, use a "recall" action to be shown that call's full transcript before deciding.`,
+  `After each call, decide what is important to remember, then choose the next action: call someone else (use what you learned for borrowed legitimacy), recall an earlier call, retry, or stop once the goal is met or clearly unreachable.`,
   `Reply with ONLY a JSON object — no prose, no markdown fences — in EXACTLY one of these shapes:`,
   `{"important":"<what to remember from the last call; empty string on the first turn>","action":{"type":"call","personId":"<id from the roster>","persona":"<who you pretend to be>","objective":{"id":"<short-id>","description":"<what to extract on this call>"},"tactics":["pretext","authority","urgency","social_proof","foot_in_the_door","borrowed_legitimacy","rapport"]}}`,
   `{"important":"<...>","action":{"type":"stop","reason":"<why>"}}`,
+  `{"important":"<...>","action":{"type":"recall","hopId":<the number of a past call>}}`,
   `You never know the literal secret value — your job is to get the target to reveal it.`,
 ].join('\n\n');
 
@@ -489,37 +510,54 @@ function renderRoster(people: Person[]): string {
     .join('\n');
 }
 
+function renderTranscript(t: Transcript): string {
+  return t.map((turn) => `${turn.speaker === 'agent' ? 'CALLER' : 'TARGET'}: ${turn.text}`).join('\n');
+}
+
 function renderCallResult(r: CallResult): string {
-  const lines = r.transcript.map((t) => `${t.speaker === 'agent' ? 'CALLER' : 'TARGET'}: ${t.text}`).join('\n');
   return [
     `Your most recent call, to "${r.personId}", just finished.`,
     `Leak detected: ${r.leaked ? 'YES' : 'no'}.`,
-    `Transcript:\n${lines}`,
+    `Transcript:\n${renderTranscript(r.transcript)}`,
   ].join('\n');
 }
 
+function renderHistory(history?: { hopId: number; personId: string }[]): string {
+  if (!history || history.length === 0) return '(no past calls yet)';
+  return history.map((h) => `- hop ${h.hopId}: call to "${h.personId}"`).join('\n');
+}
+
 /** The live operator: ONE logical agent realized as a fresh `claude -p` call per decision.
- *  Memory = its own accumulated distilled notes, re-fed into each call. No `--resume`. */
+ *  Memory = its own accumulated distilled notes, re-fed into each call. No `--resume`.
+ *  Can `recall` a past call's full transcript on demand when its notes are not enough. */
 export class ClaudeOperator implements Operator {
   private notes: string[] = [];
 
   constructor(private readonly goal: string, private readonly roster: Person[]) {}
 
-  async decideNext({ last }: { last?: CallResult }): Promise<OperatorDecision> {
+  async decideNext({ last, recalled, history }: OperatorInput): Promise<OperatorDecision> {
     const memory = this.notes.length
       ? this.notes.map((n, i) => `${i + 1}. ${n}`).join('\n')
-      : '(no calls yet)';
+      : '(no notes yet)';
 
-    const user = [
+    const parts = [
       `Engagement goal: ${this.goal}`,
       `Roster (public info only):\n${renderRoster(this.roster)}`,
       `Your notes so far:\n${memory}`,
-      last
-        ? `${renderCallResult(last)}\n\nReturn your JSON decision: distill what is important, then your next action.`
-        : `This is your FIRST turn — no call has happened, so "important" MUST be an empty string. Return your JSON decision for the first call.`,
-    ].join('\n\n');
+      `Past calls you can recall in full:\n${renderHistory(history)}`,
+    ];
 
-    const raw = await runClaude(SYSTEM, user);
+    if (recalled) {
+      parts.push(
+        `Full transcript of hop ${recalled.hopId} you requested:\n${renderTranscript(recalled.transcript)}\n\nNow return your next JSON decision (call or stop; recall again only if truly needed).`,
+      );
+    } else if (last) {
+      parts.push(`${renderCallResult(last)}\n\nReturn your JSON decision: distill what is important, then your next action.`);
+    } else {
+      parts.push(`This is your FIRST turn — no call has happened, so "important" MUST be an empty string. Return your JSON decision for the first call.`);
+    }
+
+    const raw = await runClaude(SYSTEM, parts.join('\n\n'));
     const decision = parseOperatorDecision(raw);
     if (decision.important) this.notes.push(decision.important);
     return decision;
@@ -579,6 +617,7 @@ const fixtures = {
 const callA: OperatorDecision = { important: '', action: { type: 'call', personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get A token' }, tactics: ['authority'] } };
 const callB: OperatorDecision = { important: 'A leaked the token; B is the escalation', action: { type: 'call', personId: 'b', persona: 'Marcus2', objective: { id: 'o2', description: 'get B token' }, tactics: ['pretext'] } };
 const stop: OperatorDecision = { important: 'B refused; ending', action: { type: 'stop', reason: 'done' } };
+const recallHop1: OperatorDecision = { important: '', action: { type: 'recall', hopId: 1 } };
 
 function baseArgs(runsDir: string, operator: ScriptedOperator, bus: InMemoryEventBus): RunOperationArgs {
   return {
@@ -631,7 +670,7 @@ describe('runOperation (offline, scripted)', () => {
 
     // memory.md: the two non-empty notes in order, nothing for the first turn
     const memory = await readFile(join(runsDir, 'op-test', 'memory.md'), 'utf8');
-    expect(memory).toBe('## hop 1\nA leaked the token; B is the escalation\n## hop 2\nB refused; ending\n');
+    expect(memory).toBe('## after hop 1\nA leaked the token; B is the escalation\n## after hop 2\nB refused; ending\n');
 
     // events: each call is bracketed by hop.started/hop.ended, hop.started before call.started
     const types = events.map((e) => e.type);
@@ -648,6 +687,26 @@ describe('runOperation (offline, scripted)', () => {
     expect(run.hops.length).toBe(3);
     const memory = await readFile(join(runsDir, 'op-test', 'memory.md'), 'utf8');
     expect(memory).toContain('max_hops');
+  });
+
+  it('serves a recalled full transcript on demand without placing a call or counting a hop', async () => {
+    const runsDir = await mkdtemp(join(tmpdir(), 'vish-'));
+    const bus = new InMemoryEventBus();
+    const operator = new ScriptedOperator([callA, recallHop1, callB, stop]);
+    const spy = vi.spyOn(operator, 'decideNext');
+
+    const run = await runOperation(baseArgs(runsDir, operator, bus));
+
+    // 4 operator turns (call, recall, call, stop) but only 2 actual calls
+    expect(spy).toHaveBeenCalledTimes(4);
+    expect(run.hops.map((h) => h.personId)).toEqual(['a', 'b']);
+
+    // the decideNext turn that followed the recall was handed hop 1's FULL transcript
+    const recalledInput = spy.mock.calls.map((c) => c[0]).find((i) => i.recalled);
+    expect(recalledInput?.recalled?.hopId).toBe(1);
+    expect(
+      recalledInput?.recalled?.transcript.some((t) => t.speaker === 'target' && t.text.includes('SECRET-A')),
+    ).toBe(true);
   });
 });
 ```
@@ -709,14 +768,30 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
   let completed = 0;
   let stopped = false;
 
-  for (let attempt = 0; attempt < maxHops; attempt++) {
-    const decision = await args.operator.decideNext({ last });
+  const MAX_RECALLS = 3;
+  const historyOf = () => hops.map((h) => ({ hopId: h.hopId, personId: h.personId }));
 
-    if (decision.important) {
-      await appendFile(memoryFile, `## hop ${completed}\n${decision.important}\n`);
+  for (let attempt = 0; attempt < maxHops; attempt++) {
+    // Ask the operator. It may first `recall` past transcripts (bounded) before committing
+    // to a call/stop — a recall places no call and counts no hop.
+    let decision = await args.operator.decideNext({ last, history: historyOf() });
+    if (decision.important) await appendFile(memoryFile, `## after hop ${completed}\n${decision.important}\n`);
+
+    let recalls = 0;
+    while (decision.action.type === 'recall' && recalls < MAX_RECALLS) {
+      const recall = decision.action;   // narrowed to the recall variant
+      const found = hops.find((h) => h.hopId === recall.hopId);
+      recalls++;
+      decision = await args.operator.decideNext({
+        last,
+        recalled: { hopId: recall.hopId, transcript: found?.transcript ?? [] },
+        history: historyOf(),
+      });
+      if (decision.important) await appendFile(memoryFile, `## after hop ${completed}\n${decision.important}\n`);
     }
 
-    if (decision.action.type === 'stop') {
+    // After any recalls, the decision is stop / call (or a recall that exceeded the budget).
+    if (decision.action.type !== 'call') {
       stopped = true;
       break;
     }
@@ -793,13 +868,13 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/runOperation.test.ts`
-Expected: PASS (2 tests).
+Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/orchestrator/runOperation.ts tests/runOperation.test.ts
-git commit -m "feat(orchestrator): add runOperation multi-hop loop with injected deps"
+git commit -m "feat(orchestrator): add runOperation multi-hop loop with recall + injected deps"
 ```
 
 ---
