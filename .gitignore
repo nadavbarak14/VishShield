@@ -4,5 +4,8 @@ data/runs/
 data/eventlogs/
 *.log
 
+# local secrets
+.env
+
 # local Claude settings
 .claude/

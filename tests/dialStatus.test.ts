@@ -19,4 +19,20 @@ describe('dialStatus', () => {
     expect(endedReasonFor('ended')).toBe('completed');
     expect(endedReasonFor('no-answer')).toBe('no-answer');
   });
+
+  // A live Dial call reports status as an object, not a string.
+  it('handles the real object status shape', () => {
+    const terminated = { state: 'Terminated', terminationType: 'completed', label: 'Completed' };
+    const busy = { state: 'Terminated', terminationType: 'busy', label: 'Busy' };
+    const ringing = { state: 'Ringing', label: 'Ringing' };
+    const inProgress = { state: 'InProgress', label: 'In Progress' };
+
+    expect(isTerminal(terminated)).toBe(true);
+    expect(isTerminal(busy)).toBe(true);
+    expect(isTerminal(ringing)).toBe(false);
+    expect(isTerminal(inProgress)).toBe(false);
+
+    expect(endedReasonFor(terminated)).toBe('completed');
+    expect(endedReasonFor(busy)).toBe('busy');
+  });
 });
