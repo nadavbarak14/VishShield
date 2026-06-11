@@ -50,22 +50,28 @@ export interface Person {
 
 /** What the operator is handed after a call it ordered (undefined on the very first turn). */
 export interface CallResult {
+  hopId: number;
   personId: string;
   transcript: Transcript;
   leaked: boolean;
 }
 
-/** The operator's per-turn output: what to remember from the last call, plus the next action. */
+/** One call the operator orders. A decision may place several at once (a "wave"). */
+export interface CallOrder {
+  personId: string;
+  persona: string;
+  objective: { id: string; description: string };
+  tactics: Tactic[];
+}
+
+/** Hard cap on how many calls a single decision may place in parallel. */
+export const MAX_PARALLEL_CALLS = 3;
+
+/** The operator's per-turn output: what to remember from the last calls, plus the next action. */
 export type OperatorDecision = {
   important: string;
   action:
-    | {
-        type: 'call';
-        personId: string;
-        persona: string;
-        objective: { id: string; description: string };
-        tactics: Tactic[];
-      }
+    | { type: 'call'; calls: CallOrder[] }   // 1..MAX_PARALLEL_CALLS, run concurrently
     | { type: 'stop'; reason: string }
     | { type: 'recall'; hopId: number };   // re-read a past call's full transcript on demand
 };

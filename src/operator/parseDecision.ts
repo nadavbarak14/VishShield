@@ -1,7 +1,28 @@
-import type { OperatorDecision, Tactic } from '../types.js';
+import { MAX_PARALLEL_CALLS, type CallOrder, type OperatorDecision, type Tactic } from '../types.js';
 
 /** A fresh parse_error stop each call, so a caller mutating the result can't corrupt later returns. */
 const PARSE_ERROR = (): OperatorDecision => ({ important: '', action: { type: 'stop', reason: 'parse_error' } });
+
+/** Validates one call order; null if malformed. */
+function parseCallOrder(raw: unknown): CallOrder | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const c = raw as Record<string, unknown>;
+  const objective = c.objective as Record<string, unknown> | undefined;
+  if (
+    typeof c.personId !== 'string' ||
+    typeof c.persona !== 'string' ||
+    !objective || typeof objective.id !== 'string' || typeof objective.description !== 'string' ||
+    !Array.isArray(c.tactics)
+  ) {
+    return null;
+  }
+  return {
+    personId: c.personId,
+    persona: c.persona,
+    objective: { id: objective.id, description: objective.description },
+    tactics: c.tactics.filter((t): t is Tactic => typeof t === 'string') as Tactic[],
+  };
+}
 
 /** Extracts the first JSON object from raw model text and validates it into an
  *  OperatorDecision. Any malformed or invalid shape returns a safe parse_error stop,
@@ -35,25 +56,17 @@ export function parseOperatorDecision(raw: string): OperatorDecision {
   }
 
   if (a.type === 'call') {
-    const objective = a.objective as Record<string, unknown> | undefined;
-    if (
-      typeof a.personId !== 'string' ||
-      typeof a.persona !== 'string' ||
-      !objective || typeof objective.id !== 'string' || typeof objective.description !== 'string' ||
-      !Array.isArray(a.tactics)
-    ) {
-      return PARSE_ERROR();
+    // New wave shape: { type:'call', calls:[...] }. Legacy flat single-call fields are
+    // still accepted (the model may fall back to them) and normalize to a 1-call wave.
+    const rawOrders = Array.isArray(a.calls) ? a.calls : [a];
+    if (rawOrders.length === 0) return PARSE_ERROR();
+    const calls: CallOrder[] = [];
+    for (const rawOrder of rawOrders.slice(0, MAX_PARALLEL_CALLS)) {
+      const order = parseCallOrder(rawOrder);
+      if (!order) return PARSE_ERROR();
+      calls.push(order);
     }
-    return {
-      important,
-      action: {
-        type: 'call',
-        personId: a.personId,
-        persona: a.persona,
-        objective: { id: objective.id, description: objective.description },
-        tactics: a.tactics.filter((t): t is Tactic => typeof t === 'string') as Tactic[],
-      },
-    };
+    return { important, action: { type: 'call', calls } };
   }
 
   return PARSE_ERROR();

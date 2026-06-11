@@ -9,7 +9,10 @@ export function attachTerminalVisualizer(
       case 'operator.decision': {
         if (e.important) log(`\n🧠 OPERATOR (learned): ${e.important}`);
         const a = e.action;
-        if (a.type === 'call') log(`🧠 OPERATOR → CALL ${a.personId} as "${a.persona}" — ${a.objective.description}`);
+        if (a.type === 'call') {
+          if (a.calls.length > 1) log(`🧠 OPERATOR → ${a.calls.length} CALLS IN PARALLEL`);
+          for (const c of a.calls) log(`🧠 OPERATOR → CALL ${c.personId} as "${c.persona}" — ${c.objective.description}`);
+        }
         else if (a.type === 'recall') log(`🧠 OPERATOR → RECALL call ${a.hopId}`);
         else log(`🧠 OPERATOR → STOP (${a.reason})`);
         break;

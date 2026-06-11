@@ -20,7 +20,8 @@ export interface RunOperationArgs {
   /** sim-only fixtures keyed by personId; NEVER exposed to the operator or talker. */
   fixtures: Record<string, { secret?: string; targetPersona: string }>;
   operator: Operator;
-  makeAgent: (persona: string) => Agent;
+  /** `personId` lets scripted/demo factories pick the right canned lines per call. */
+  makeAgent: (persona: string, personId?: string) => Agent;
   /** `persona` here is the TARGET's behavioral persona (resolved from fixtures). */
   makeTarget: (personId: string, persona: string, secret?: string) => Target;
   makeCallEngine?: (target: Target) => CallEngine;
@@ -41,7 +42,7 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
   await mkdir(join(opDir, 'calls'), { recursive: true });
 
   const hops: OperationHop[] = [];
-  let last: CallResult | undefined;
+  let last: CallResult[] | undefined;
   let completed = 0;
   let stopped = false;
   let seq = 0;
@@ -51,7 +52,7 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
   const emitDecision = (d: OperatorDecision) =>
     args.bus.emit({ type: 'operator.decision', operationId: args.operationId, seq: seq++, important: d.important, action: d.action });
 
-  for (let attempt = 0; attempt < maxHops; attempt++) {
+  while (completed < maxHops) {
     // Ask the operator. It may first `recall` past transcripts (bounded) before committing
     // to a call/stop — a recall places no call and counts no hop. Every decision is emitted
     // so the UI can show the operator's reasoning + how it handled each call's result.
@@ -79,53 +80,76 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
       break;
     }
 
-    const action = decision.action;
-    const person = await args.roster.getPerson(action.personId);
-    if (!person) {
-      await appendFile(memoryFile, `## note\nunknown person ${action.personId}; stopping\n`);
+    // The wave: 1..MAX_PARALLEL_CALLS calls placed at once, trimmed to the hop budget.
+    const orders = decision.action.calls.slice(0, maxHops - completed);
+    if (orders.length === 0) {
       stopped = true;
       break;
     }
 
-    const hopId = completed + 1;
-    args.bus.emit({ type: 'hop.started', operationId: args.operationId, hopId, personId: action.personId, name: person.name, title: person.title });
+    // Validate every person up-front, before any hop is announced.
+    const people = await Promise.all(orders.map((o) => args.roster.getPerson(o.personId)));
+    const missingAt = people.findIndex((p) => !p);
+    if (missingAt !== -1) {
+      await appendFile(memoryFile, `## note\nunknown person ${orders[missingAt].personId}; stopping\n`);
+      stopped = true;
+      break;
+    }
 
-    const objective: Objective = { ...action.objective, secret: args.fixtures[action.personId]?.secret };
-    const target = args.makeTarget(action.personId, args.fixtures[action.personId]?.targetPersona ?? '', objective.secret);
-
-    const { conversation, keyInfo } = await runCampaign({
-      conversationId: `${args.operationId}-hop-${hopId}`,
-      campaignId: args.operationId,
-      targetId: action.personId,
-      objective,
-      allowedTactics: action.tactics,
-      persona: action.persona,
-      agent: args.makeAgent(action.persona),
-      callEngine: makeCallEngine(target),
-      kb: args.roster,
-      conversationStore: args.conversationStore,
-      keyInfoStore: args.keyInfoStore,
-      extractor: args.extractor,
-      bus: args.bus,
+    const baseHop = completed;
+    // Announce the whole wave before any call runs, so the UI shows parallel dialing.
+    orders.forEach((order, i) => {
+      const person = people[i]!;
+      args.bus.emit({
+        type: 'hop.started', operationId: args.operationId, hopId: baseHop + i + 1,
+        personId: order.personId, name: person.name, title: person.title,
+      });
     });
 
-    const leaked = keyInfo.length > 0;
-    const hop: OperationHop = {
-      hopId,
-      personId: action.personId,
-      persona: action.persona,
-      objective,
-      transcript: conversation.transcript,
-      endedReason: conversation.endedReason,
-      leaked,
-    };
-    hops.push(hop);
-    await writeFile(join(opDir, 'calls', `hop-${hopId}-${action.personId}.json`), JSON.stringify(hop, null, 2));
+    // Run the wave concurrently. Each call's events carry its own conversationId
+    // (`<op>-hop-<n>`), so interleaved turns stay attributable. The async callbacks run
+    // synchronously up to their first await, in array order — so make*-factory calls
+    // stay deterministic for scripted/demo implementations.
+    const results = await Promise.all(orders.map(async (order, i) => {
+      const hopId = baseHop + i + 1;
+      const objective: Objective = { ...order.objective, secret: args.fixtures[order.personId]?.secret };
+      const agent = args.makeAgent(order.persona, order.personId);
+      const target = args.makeTarget(order.personId, args.fixtures[order.personId]?.targetPersona ?? '', objective.secret);
 
-    args.bus.emit({ type: 'hop.ended', operationId: args.operationId, hopId, personId: action.personId, leaked });
+      const { conversation, keyInfo } = await runCampaign({
+        conversationId: `${args.operationId}-hop-${hopId}`,
+        campaignId: args.operationId,
+        targetId: order.personId,
+        objective,
+        allowedTactics: order.tactics,
+        persona: order.persona,
+        agent,
+        callEngine: makeCallEngine(target),
+        kb: args.roster,
+        conversationStore: args.conversationStore,
+        keyInfoStore: args.keyInfoStore,
+        extractor: args.extractor,
+        bus: args.bus,
+      });
 
-    last = { personId: action.personId, transcript: conversation.transcript, leaked };
-    completed = hopId;
+      const leaked = keyInfo.length > 0;
+      const hop: OperationHop = {
+        hopId,
+        personId: order.personId,
+        persona: order.persona,
+        objective,
+        transcript: conversation.transcript,
+        endedReason: conversation.endedReason,
+        leaked,
+      };
+      await writeFile(join(opDir, 'calls', `hop-${hopId}-${order.personId}.json`), JSON.stringify(hop, null, 2));
+      args.bus.emit({ type: 'hop.ended', operationId: args.operationId, hopId, personId: order.personId, leaked });
+      return hop;
+    }));
+
+    hops.push(...results);   // Promise.all preserves array order → hops stay in hopId order
+    last = results.map((h) => ({ hopId: h.hopId, personId: h.personId, transcript: h.transcript, leaked: h.leaked }));
+    completed += results.length;
   }
 
   if (!stopped) {

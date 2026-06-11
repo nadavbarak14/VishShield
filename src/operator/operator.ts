@@ -1,10 +1,11 @@
 import type { CallResult, OperatorDecision, Transcript } from '../types.js';
 
-/** What the operator is handed each turn. `last` is the call just placed (undefined on the
- *  first turn). `recalled` is a past call's full transcript served in response to a prior
- *  `recall` action. `history` lists the past calls available to recall. */
+/** What the operator is handed each turn. `last` holds the results of the call wave just
+ *  placed, ordered by hopId (undefined on the first turn). `recalled` is a past call's full
+ *  transcript served in response to a prior `recall` action. `history` lists the past calls
+ *  available to recall. */
 export interface OperatorInput {
-  last?: CallResult;
+  last?: CallResult[];
   recalled?: { hopId: number; transcript: Transcript };
   history?: { hopId: number; personId: string }[];
 }

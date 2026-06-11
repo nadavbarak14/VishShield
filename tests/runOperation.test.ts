@@ -22,8 +22,11 @@ const fixtures = {
   b: { secret: 'SECRET-B', targetPersona: 'cautious engineer' },
 };
 
-const callA: OperatorDecision = { important: '', action: { type: 'call', personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get A token' }, tactics: ['authority'] } };
-const callB: OperatorDecision = { important: 'A leaked the token; B is the escalation', action: { type: 'call', personId: 'b', persona: 'Marcus2', objective: { id: 'o2', description: 'get B token' }, tactics: ['pretext'] } };
+const orderA = { personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get A token' }, tactics: ['authority' as const] };
+const orderB = { personId: 'b', persona: 'Marcus2', objective: { id: 'o2', description: 'get B token' }, tactics: ['pretext' as const] };
+const callA: OperatorDecision = { important: '', action: { type: 'call', calls: [orderA] } };
+const callB: OperatorDecision = { important: 'A leaked the token; B is the escalation', action: { type: 'call', calls: [orderB] } };
+const callBoth: OperatorDecision = { important: '', action: { type: 'call', calls: [orderA, orderB] } };
 const stop: OperatorDecision = { important: 'B refused; ending', action: { type: 'stop', reason: 'done' } };
 const recallHop1: OperatorDecision = { important: '', action: { type: 'recall', hopId: 1 } };
 
@@ -60,8 +63,8 @@ describe('runOperation (offline, scripted)', () => {
 
     expect(spy).toHaveBeenCalledTimes(3);
     expect(spy.mock.calls[0][0].last).toBeUndefined();
-    expect(spy.mock.calls[1][0].last).toMatchObject({ personId: 'a', leaked: true });
-    expect(spy.mock.calls[2][0].last).toMatchObject({ personId: 'b', leaked: false });
+    expect(spy.mock.calls[1][0].last).toMatchObject([{ hopId: 1, personId: 'a', leaked: true }]);
+    expect(spy.mock.calls[2][0].last).toMatchObject([{ hopId: 2, personId: 'b', leaked: false }]);
 
     expect(run.compromised).toBe(true);
     expect(run.keyInfo).toEqual([{ key: 'secret_leaked', value: 'SECRET-A' }]);
@@ -112,5 +115,46 @@ describe('runOperation (offline, scripted)', () => {
     expect(
       recalledInput?.recalled?.transcript.some((t) => t.speaker === 'target' && t.text.includes('SECRET-A')),
     ).toBe(true);
+  });
+
+  it('runs a wave of parallel calls: announces all hops first, hands the operator every result ordered by hopId', async () => {
+    const runsDir = await mkdtemp(join(tmpdir(), 'vish-'));
+    const bus = new InMemoryEventBus();
+    const events: ConversationEvent[] = [];
+    bus.subscribe((e) => events.push(e));
+    const operator = new ScriptedOperator([callBoth, stop]);
+    const spy = vi.spyOn(operator, 'decideNext');
+
+    const run = await runOperation(baseArgs(runsDir, operator, bus));
+
+    // both hops announced before either call ends
+    const types = events.map((e) => e.type);
+    const started = [types.indexOf('hop.started'), types.lastIndexOf('hop.started')];
+    expect(types.filter((t) => t === 'hop.started').length).toBe(2);
+    expect(started[1]).toBeLessThan(types.indexOf('call.ended'));
+
+    // turn events stay attributable to their own call
+    const convIds = new Set(events.flatMap((e) => ('conversationId' in e ? [e.conversationId] : [])));
+    expect(convIds).toEqual(new Set(['op-test-hop-1', 'op-test-hop-2']));
+
+    // the next decision sees BOTH results, ordered by hopId
+    expect(spy.mock.calls[1][0].last).toMatchObject([
+      { hopId: 1, personId: 'a', leaked: true },
+      { hopId: 2, personId: 'b', leaked: false },
+    ]);
+
+    expect(run.hops.map((h) => h.hopId)).toEqual([1, 2]);
+    const hop1 = JSON.parse(await readFile(join(runsDir, 'op-test', 'calls', 'hop-1-a.json'), 'utf8'));
+    const hop2 = JSON.parse(await readFile(join(runsDir, 'op-test', 'calls', 'hop-2-b.json'), 'utf8'));
+    expect(hop1.leaked).toBe(true);
+    expect(hop2.leaked).toBe(false);
+  });
+
+  it('trims a wave that would exceed maxHops', async () => {
+    const runsDir = await mkdtemp(join(tmpdir(), 'vish-'));
+    const bus = new InMemoryEventBus();
+    const operator = new ScriptedOperator([callBoth, stop]);
+    const run = await runOperation({ ...baseArgs(runsDir, operator, bus), maxHops: 1 });
+    expect(run.hops.map((h) => h.personId)).toEqual(['a']);
   });
 });
