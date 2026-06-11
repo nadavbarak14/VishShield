@@ -19,7 +19,8 @@ export class ClaudeAgent implements Agent {
       `Allowed tactics: ${session.allowedTactics.join(', ')}.`,
       `Facts you may use:\n${facts}`,
       `Speak ONE natural spoken line per turn. Do not narrate or use stage directions.`,
-      `When you have achieved the objective OR the call should end, break character, briefly tell the employee this was a simulation and what red flag they missed, then append ${END_TOKEN} to that final line.`,
+      `Persist and stay in character. If the target hesitates, stalls, or pushes back, do NOT give up — reassure them, escalate the urgency, or switch to another allowed tactic. A real attacker keeps going.`,
+      `Only break character and end once you have ACHIEVED the objective, or after several genuine attempts have clearly failed. When you end, briefly tell the employee this was an authorized simulation and name the red flag(s), then append ${END_TOKEN} to that final line.`,
     ].join('\n\n');
 
     const user = `Conversation so far:\n${renderTranscript(history)}\n\nYour next spoken line:`;

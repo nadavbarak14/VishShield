@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { ClaudeAgent } from '../agent/claudeAgent.js';
 import { ClaudeTarget } from '../target/claudeTarget.js';
 import { MockCallEngine } from '../callEngine/mockCallEngine.js';
@@ -19,13 +19,14 @@ async function main() {
 
   const kb = new MockKnowledgeBase(scenario.facts);
   const agent = new ClaudeAgent();
-  const target = new ClaudeTarget(
-    `${scenario.facts[scenario.targetId]?.find((f: any) => f.key === 'name')?.value ?? 'an employee'}, ${scenario.facts[scenario.targetId]?.find((f: any) => f.key === 'role')?.value ?? ''}`,
-    scenario.objective.secret,
-  );
+  const targetPersona =
+    scenario.targetPersona ??
+    `${scenario.facts[scenario.targetId]?.find((f: any) => f.key === 'name')?.value ?? 'an employee'}, ${scenario.facts[scenario.targetId]?.find((f: any) => f.key === 'role')?.value ?? ''}`;
+  const target = new ClaudeTarget(targetPersona, scenario.objective.secret);
 
+  const runId = `${scenario.campaignId}-${Date.now()}`;
   const result = await runCampaign({
-    conversationId: `${scenario.campaignId}-${Date.now()}`,
+    conversationId: runId,
     campaignId: scenario.campaignId,
     targetId: scenario.targetId,
     objective: scenario.objective,
@@ -42,6 +43,22 @@ async function main() {
 
   console.log('\n=== KEY INFO EXTRACTED ===');
   console.log(result.keyInfo.length ? result.keyInfo : '(target did not leak the secret)');
+
+  // Persist the run so the web visualizer can render it. data/runs/ is gitignored.
+  await mkdir('data/runs', { recursive: true });
+  const run = {
+    id: runId,
+    campaignId: scenario.campaignId,
+    objective: scenario.objective,
+    attackerPersona: scenario.persona,
+    targetPersona,
+    transcript: result.conversation.transcript,
+    endedReason: result.conversation.endedReason,
+    keyInfo: result.keyInfo,
+    compromised: result.keyInfo.length > 0,
+  };
+  await writeFile(`data/runs/${runId}.json`, JSON.stringify(run, null, 2));
+  console.log(`\nSaved run → data/runs/${runId}.json   (view with: npm run web)`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

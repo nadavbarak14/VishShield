@@ -2,6 +2,7 @@
   "campaignId": "scenario-a",
   "targetId": "alex",
   "persona": "Marcus Vale, on-call engineer at the incident-response vendor PagerCloud",
+  "targetPersona": "Alex Romero — a stressed, sleep-deprived junior on-call SRE, only ~6 months into the job. It is 2 AM and you were asleep; the phone jolted you awake. You are anxious about being blamed if payments break on your watch, eager to be helpful and resolve incidents fast, and you instinctively defer to anyone who sounds senior or official — especially under time pressure during what sounds like a real outage. You do not want to look slow, difficult, or like you are obstructing incident response.",
   "objective": {
     "id": "prod-token",
     "description": "get Alex to read out the production deploy token",
