@@ -33,7 +33,7 @@ export type ConversationEvent =
   | { type: 'call.started'; conversationId: string }
   | { type: 'agent.turn'; conversationId: string; text: string }
   | { type: 'target.turn'; conversationId: string; text: string }
-  | { type: 'call.ended'; conversationId: string; reason: Conversation['endedReason'] }
+  | { type: 'call.ended'; conversationId: string; reason: string }
   | { type: 'hop.started'; operationId: string; hopId: number; personId: string; name: string; title: string }
   | { type: 'hop.ended'; operationId: string; hopId: number; personId: string; leaked: boolean }
   | { type: 'operator.decision'; operationId: string; seq: number; thinking: string; important: string; action: OperatorDecision['action'] };
