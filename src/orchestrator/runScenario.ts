@@ -11,6 +11,7 @@ import { SecretLeakExtractor } from '../extract/secretLeakExtractor.js';
 import { runCampaign } from './runCampaign.js';
 import { RosterKnowledgeBase } from '../knowledge/rosterKnowledgeBase.js';
 import { ClaudeOperator } from '../operator/claudeOperator.js';
+import { AiOperator } from '../operator/aiOperator.js';
 import { buildDemoRunArgs } from './demoScenario.js';
 import { runOperation } from './runOperation.js';
 import { scenarioKind } from './scenarioKind.js';
@@ -124,7 +125,9 @@ async function runOperationScenario(scenario: any, bus: EventBus): Promise<Opera
     goal: scenario.goal,
     roster: new RosterKnowledgeBase(roster),
     fixtures,
-    operator: new ClaudeOperator(scenario.goal, roster),
+    operator: (process.env.VISH_OPERATOR_BACKEND ?? 'ai') === 'claude'
+      ? new ClaudeOperator(scenario.goal, roster)
+      : new AiOperator(scenario.goal, roster),
     makeAgent: useMock ? () => new MockVoiceAgent() : () => new ClaudeAgent(),
     makeTarget: useMock
       ? (id) => new MockVoiceTarget(mockMap[id])
