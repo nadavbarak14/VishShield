@@ -34,7 +34,7 @@ export type ConversationEvent =
   | { type: 'agent.turn'; conversationId: string; text: string }
   | { type: 'target.turn'; conversationId: string; text: string }
   | { type: 'call.ended'; conversationId: string; reason: Conversation['endedReason'] }
-  | { type: 'hop.started'; operationId: string; hopId: number; personId: string }
+  | { type: 'hop.started'; operationId: string; hopId: number; personId: string; name: string; title: string }
   | { type: 'hop.ended'; operationId: string; hopId: number; personId: string; leaked: boolean };
 
 /** Public profile of a person in the roster. The attacker side sees ONLY this — never a secret. */

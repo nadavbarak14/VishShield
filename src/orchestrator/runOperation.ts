@@ -82,7 +82,7 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
     }
 
     const hopId = completed + 1;
-    args.bus.emit({ type: 'hop.started', operationId: args.operationId, hopId, personId: action.personId });
+    args.bus.emit({ type: 'hop.started', operationId: args.operationId, hopId, personId: action.personId, name: person.name, title: person.title });
 
     const objective: Objective = { ...action.objective, secret: args.fixtures[action.personId]?.secret };
     const target = args.makeTarget(action.personId, args.fixtures[action.personId]?.targetPersona ?? '', objective.secret);

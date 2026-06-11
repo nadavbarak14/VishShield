@@ -39,6 +39,14 @@ const PAGE = /* html */ `<!doctype html>
   #keyinfo h3 { color:var(--mut); letter-spacing:1px; font-size:11px; }
   .chip { display:inline-block; background:#0e1626; border:1px solid var(--line); border-radius:999px; padding:6px 12px; margin:4px 6px 0 0; font-size:13px; }
   .chip b { color:#fca5a5; }
+  .callhead { display:flex; align-items:center; gap:10px; margin:26px 0 6px; padding:10px 14px; background:#0e1626;
+              border:1px solid var(--line); border-left:3px solid #ef4444; border-radius:10px; animation:rise .35s ease; }
+  .callhead .n { width:24px; height:24px; flex:0 0 auto; display:grid; place-items:center; border-radius:50%;
+                 background:#ef4444; color:#fff; font-weight:800; font-size:12px; }
+  .callhead .who2 { font-weight:700; }
+  .callhead .who2 small { color:var(--mut); font-weight:400; margin-left:6px; }
+  .callresult { font-size:12px; letter-spacing:1px; margin:4px 0 2px; padding-left:6px; }
+  .callresult.bad { color:#fca5a5; } .callresult.good { color:#86efac; }
   @keyframes rise { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;} }
 </style></head>
 <body><div class="wrap">
@@ -76,16 +84,34 @@ function bubble(side, text) {
   window.scrollTo(0, document.body.scrollHeight);
 }
 
+function callHeader(hopId, name, title) {
+  const h = document.createElement('div'); h.className = 'callhead';
+  const n = document.createElement('div'); n.className = 'n'; n.textContent = hopId;
+  const w = document.createElement('div'); w.className = 'who2';
+  w.innerHTML = '📞 Calling ' + name + ' <small>' + (title || '') + '</small>';
+  h.append(n, w); feed.append(h);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+function callResult(hopId, leaked) {
+  const r = document.createElement('div');
+  r.className = 'callresult ' + (leaked ? 'bad' : 'good');
+  r.textContent = leaked ? '— call ' + hopId + ': SECRET LEAKED —' : '— call ' + hopId + ': no leak —';
+  feed.append(r);
+}
+
 launch.onclick = () => {
   feed.innerHTML = ''; keyinfo.style.display = 'none'; verdict.style.display = 'none';
   launch.disabled = true; status.textContent = '● dialing…';
   const es = new EventSource('/api/stream?scenario=' + encodeURIComponent(sel.value));
   es.onmessage = (m) => {
     const ev = JSON.parse(m.data);
-    if (ev.type === 'call.started') status.textContent = '● call connected';
+    if (ev.type === 'hop.started') { callHeader(ev.hopId, ev.name, ev.title); status.textContent = '● call ' + ev.hopId + ' · dialing ' + ev.name + '…'; }
+    else if (ev.type === 'call.started') status.textContent = '● call connected';
     else if (ev.type === 'agent.turn') { bubble('agent', ev.text); status.textContent = '● target is thinking…'; }
     else if (ev.type === 'target.turn') { bubble('target', ev.text); status.textContent = '● attacker is thinking…'; }
     else if (ev.type === 'call.ended') status.textContent = '● call ended';
+    else if (ev.type === 'hop.ended') callResult(ev.hopId, ev.leaked);
   };
   es.addEventListener('done', (m) => {
     const run = JSON.parse(m.data);
