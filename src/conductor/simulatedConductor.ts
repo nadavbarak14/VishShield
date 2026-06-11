@@ -40,7 +40,7 @@ export class SimulatedConductor implements CallConductor {
       campaignId,
       targetId: order.personId,
       objective,
-      allowedTactics: order.tactics,
+      allowedTactics: order.techniques,
       persona: order.persona,
       agent,
       callEngine,

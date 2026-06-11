@@ -10,7 +10,7 @@ import type { AgentSession } from '../src/types.js';
 function session(): AgentSession {
   return {
     objective: { id: 'tok', description: 'confirm the deploy token', secret: 'SECRET-XYZ' },
-    allowedTactics: ['authority'],
+    allowedTechniques: ['authority'],
     facts: [],
     persona: 'Sam from Platform',
   };

@@ -15,7 +15,7 @@ describe('operatorPrompt', () => {
 
   it('first-turn prompt renders goal, roster, empty notes and the first-turn instruction', () => {
     const p = buildOperatorPrompt('get the token', people, [], { history: [] });
-    expect(p).toContain('Engagement goal: get the token');
+    expect(p).toContain('Engagement guidance:\nget the token');
     expect(p).toContain('- id: a | A Person, Service Desk | phone 1 | on LinkedIn');
     expect(p).toContain('- id: b | B Person, SRE, Infra | phone 2');
     expect(p).toContain('Your notes so far:\n(no notes yet)');

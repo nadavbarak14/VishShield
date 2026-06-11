@@ -9,7 +9,7 @@ import type { AgentSession, ConversationEvent } from '../src/types.js';
 
 const session: AgentSession = {
   objective: { id: 'o1', description: 'get token', secret: 'ABC123' },
-  allowedTactics: ['authority'],
+  allowedTechniques: ['authority'],
   facts: [],
 };
 

@@ -6,7 +6,7 @@ import type { Conversation } from '../src/types.js';
 
 const conv: Conversation = {
   id: 'c1', campaignId: 'camp1',
-  session: { objective: { id: 'o', description: 'd' }, allowedTactics: [], facts: [] },
+  session: { objective: { id: 'o', description: 'd' }, allowedTechniques: [], facts: [] },
   transcript: [{ speaker: 'agent', text: 'hi' }],
   endedReason: 'agent_ended',
 };
