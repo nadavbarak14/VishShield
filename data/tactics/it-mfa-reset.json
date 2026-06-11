@@ -1,0 +1,6 @@
+{
+  "id": "it-mfa-reset",
+  "name": "IT MFA reset",
+  "summary": "Pose as internal IT running an MFA migration; get a code or token read back.",
+  "instructions": "Call as the internal IT service desk performing a mandatory MFA / credential re-enrollment tonight. Build quick rapport, cite an official-sounding ticket number, and lead the employee to read back a one-time code, enrollment token, or deploy token they can see on their screen. If the person you reach cannot read it, get them to tell you who can, then escalate to that person using what you just learned for borrowed legitimacy."
+}
