@@ -49,9 +49,14 @@ const PAGE = /* html */ `<!doctype html>
   #steps::before { content:""; position:absolute; left:8px; top:8px; bottom:8px; width:2px; background:#1e3a5f; }
   .step { position:relative; margin:0 0 14px; padding:12px 14px; background:#0b1220; border:1px solid #1e3a5f; border-radius:10px; animation:rise .35s ease; }
   .step::before { content:""; position:absolute; left:-21px; top:17px; width:9px; height:9px; border-radius:50%; background:var(--acc); box-shadow:0 0 8px var(--acc); }
-  .step h4 { margin:0 0 6px; font-size:11px; letter-spacing:1.5px; color:#7dd3fc; }
+  .step h4 { margin:0 0 8px; font-size:11px; letter-spacing:1.5px; color:#7dd3fc; }
+  /* the agent's reasoning — the hero of every step card */
+  .step .think { position:relative; margin:0 0 10px; padding:2px 0 2px 16px; border-left:2px solid #38bdf8; font-size:15px; line-height:1.6; color:#e8eef6; }
+  .step .think .q { position:absolute; left:2px; top:-4px; color:#38bdf8; font-size:20px; font-weight:800; opacity:.6; }
+  .step .think .body { font-style:italic; }
   .step .saved { display:flex; gap:8px; margin:0 0 10px; padding:8px 10px; background:rgba(125,211,252,.06); border:1px dashed #1e3a5f; border-radius:8px; font-size:13px; color:#cbd5e1; }
   .step .saved .ic { flex:0 0 auto; }
+  .step .saved .lbl { font-size:10px; letter-spacing:1px; font-weight:800; color:#7dd3fc; margin-bottom:2px; text-transform:uppercase; }
   .step .act { font-size:13.5px; font-weight:700; margin-bottom:2px; }
   .step .act.stop { color:#86efac; } .step .act.recall { color:#e2e8f0; }
   .toolrow { margin-top:8px; border:1px solid var(--line); border-radius:9px; background:#0e1626; padding:9px 11px; cursor:pointer; transition:border-color .15s; }
@@ -333,10 +338,19 @@ function makeChip(name, order, _call) {
 
 function renderDecision(ev) {
   const step = stepCard('🧠 AGENT · STEP ' + (ev.seq + 1));
+  // The thought process is the hero of the card: the agent's reasoning for this move.
+  if (ev.thinking) {
+    const think = el('div', 'think');
+    think.append(el('span', 'q', '“'));
+    think.append(el('span', 'body', ev.thinking));
+    step.append(think);
+  }
+  // What it chose to commit to durable memory (also mirrored into the memory rail).
   if (ev.important) {
     const saved = el('div', 'saved');
     saved.append(el('span', 'ic', '💾'));
     const body = el('div');
+    body.append(el('div', 'lbl', 'Saved to memory'));
     body.append(el('div', null, ev.important));
     saved.append(body);
     step.append(saved);

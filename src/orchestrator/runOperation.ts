@@ -50,7 +50,7 @@ export async function runOperation(args: RunOperationArgs): Promise<OperationRun
   const MAX_RECALLS = 3;
   const historyOf = () => hops.map((h) => ({ hopId: h.hopId, personId: h.personId }));
   const emitDecision = (d: OperatorDecision) =>
-    args.bus.emit({ type: 'operator.decision', operationId: args.operationId, seq: seq++, important: d.important, action: d.action });
+    args.bus.emit({ type: 'operator.decision', operationId: args.operationId, seq: seq++, thinking: d.thinking, important: d.important, action: d.action });
 
   while (completed < maxHops) {
     // Ask the operator. It may first `recall` past transcripts (bounded) before committing

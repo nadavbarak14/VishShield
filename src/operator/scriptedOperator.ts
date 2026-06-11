@@ -7,7 +7,7 @@ export class ScriptedOperator implements Operator {
 
   async decideNext(_input: OperatorInput): Promise<OperatorDecision> {
     if (this.i >= this.decisions.length) {
-      return { important: '', action: { type: 'stop', reason: 'out_of_script' } };
+      return { thinking: '', important: '', action: { type: 'stop', reason: 'out_of_script' } };
     }
     return this.decisions[this.i++];
   }

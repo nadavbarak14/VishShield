@@ -2,17 +2,28 @@ import { describe, it, expect } from 'vitest';
 import { parseOperatorDecision } from '../src/operator/parseDecision.js';
 
 describe('parseOperatorDecision', () => {
-  it('parses a calls-array decision wrapped in prose/markdown', () => {
-    const raw = 'Sure, here is my decision:\n```json\n{"important":"","action":{"type":"call","calls":[{"personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"tactics":["authority","urgency"]}]}}\n```';
+  it('parses a calls-array decision (with reasoning) wrapped in prose/markdown', () => {
+    const raw = 'Sure, here is my decision:\n```json\n{"thinking":"helpdesk is the soft entry","important":"","action":{"type":"call","calls":[{"personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"tactics":["authority","urgency"]}]}}\n```';
     expect(parseOperatorDecision(raw)).toEqual({
+      thinking: 'helpdesk is the soft entry',
       important: '',
       action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, tactics: ['authority', 'urgency'] }] },
     });
   });
 
-  it('normalizes the legacy flat single-call shape into a one-call wave', () => {
-    const raw = '{"important":"","action":{"type":"call","personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"tactics":["authority"]}}';
+  it('defaults thinking to an empty string when the model omits it', () => {
+    const raw = '{"important":"","action":{"type":"call","calls":[{"personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"tactics":["authority"]}]}}';
     expect(parseOperatorDecision(raw)).toEqual({
+      thinking: '',
+      important: '',
+      action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, tactics: ['authority'] }] },
+    });
+  });
+
+  it('normalizes the legacy flat single-call shape into a one-call wave', () => {
+    const raw = '{"thinking":"go","important":"","action":{"type":"call","personId":"alex","persona":"Marcus","objective":{"id":"o1","description":"get the token"},"tactics":["authority"]}}';
+    expect(parseOperatorDecision(raw)).toEqual({
+      thinking: 'go',
       important: '',
       action: { type: 'call', calls: [{ personId: 'alex', persona: 'Marcus', objective: { id: 'o1', description: 'get the token' }, tactics: ['authority'] }] },
     });
@@ -40,20 +51,22 @@ describe('parseOperatorDecision', () => {
   });
 
   it('parses a valid stop decision', () => {
-    const raw = '{"important":"target refused","action":{"type":"stop","reason":"unreachable"}}';
+    const raw = '{"thinking":"goal is met","important":"target refused","action":{"type":"stop","reason":"unreachable"}}';
     expect(parseOperatorDecision(raw)).toEqual({
+      thinking: 'goal is met',
       important: 'target refused',
       action: { type: 'stop', reason: 'unreachable' },
     });
   });
 
   it('parses a recall decision', () => {
-    const raw = '{"important":"","action":{"type":"recall","hopId":1}}';
-    expect(parseOperatorDecision(raw)).toEqual({ important: '', action: { type: 'recall', hopId: 1 } });
+    const raw = '{"thinking":"need the verbatim record","important":"","action":{"type":"recall","hopId":1}}';
+    expect(parseOperatorDecision(raw)).toEqual({ thinking: 'need the verbatim record', important: '', action: { type: 'recall', hopId: 1 } });
   });
 
   it('returns a safe parse_error stop on non-JSON', () => {
     expect(parseOperatorDecision('I think I should call Alex next.')).toEqual({
+      thinking: '',
       important: '',
       action: { type: 'stop', reason: 'parse_error' },
     });

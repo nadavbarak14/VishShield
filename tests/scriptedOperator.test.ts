@@ -3,10 +3,11 @@ import { ScriptedOperator } from '../src/operator/scriptedOperator.js';
 import type { OperatorDecision } from '../src/types.js';
 
 const callA: OperatorDecision = {
+  thinking: 'call A first',
   important: '',
   action: { type: 'call', calls: [{ personId: 'a', persona: 'P', objective: { id: 'o', description: 'd' }, tactics: ['authority'] }] },
 };
-const stop: OperatorDecision = { important: 'learned X', action: { type: 'stop', reason: 'done' } };
+const stop: OperatorDecision = { thinking: 'done now', important: 'learned X', action: { type: 'stop', reason: 'done' } };
 
 describe('ScriptedOperator', () => {
   it('returns its canned decisions in order, then a safe stop when exhausted', async () => {

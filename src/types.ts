@@ -36,7 +36,7 @@ export type ConversationEvent =
   | { type: 'call.ended'; conversationId: string; reason: Conversation['endedReason'] }
   | { type: 'hop.started'; operationId: string; hopId: number; personId: string; name: string; title: string }
   | { type: 'hop.ended'; operationId: string; hopId: number; personId: string; leaked: boolean }
-  | { type: 'operator.decision'; operationId: string; seq: number; important: string; action: OperatorDecision['action'] };
+  | { type: 'operator.decision'; operationId: string; seq: number; thinking: string; important: string; action: OperatorDecision['action'] };
 
 /** Public profile of a person in the roster. The attacker side sees ONLY this — never a secret. */
 export interface Person {
@@ -67,8 +67,11 @@ export interface CallOrder {
 /** Hard cap on how many calls a single decision may place in parallel. */
 export const MAX_PARALLEL_CALLS = 3;
 
-/** The operator's per-turn output: what to remember from the last calls, plus the next action. */
+/** The operator's per-turn output: its reasoning, what to remember, and the next action.
+ *  `thinking` is the forward-looking rationale shown in the UI (the agent's chain of
+ *  thought); `important` is the durable note distilled into memory. */
 export type OperatorDecision = {
+  thinking: string;
   important: string;
   action:
     | { type: 'call'; calls: CallOrder[] }   // 1..MAX_PARALLEL_CALLS, run concurrently

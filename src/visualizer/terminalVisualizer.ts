@@ -7,7 +7,8 @@ export function attachTerminalVisualizer(
   bus.subscribe((e) => {
     switch (e.type) {
       case 'operator.decision': {
-        if (e.important) log(`\n🧠 OPERATOR (learned): ${e.important}`);
+        if (e.thinking) log(`\n🧠 OPERATOR (thinking): ${e.thinking}`);
+        if (e.important) log(`🧠 OPERATOR (learned): ${e.important}`);
         const a = e.action;
         if (a.type === 'call') {
           if (a.calls.length > 1) log(`🧠 OPERATOR → ${a.calls.length} CALLS IN PARALLEL`);

@@ -1,7 +1,7 @@
 import { MAX_PARALLEL_CALLS, type CallOrder, type OperatorDecision, type Tactic } from '../types.js';
 
 /** A fresh parse_error stop each call, so a caller mutating the result can't corrupt later returns. */
-const PARSE_ERROR = (): OperatorDecision => ({ important: '', action: { type: 'stop', reason: 'parse_error' } });
+const PARSE_ERROR = (): OperatorDecision => ({ thinking: '', important: '', action: { type: 'stop', reason: 'parse_error' } });
 
 /** Validates one call order; null if malformed. */
 function parseCallOrder(raw: unknown): CallOrder | null {
@@ -41,18 +41,19 @@ export function parseOperatorDecision(raw: string): OperatorDecision {
   if (typeof parsed !== 'object' || parsed === null) return PARSE_ERROR();
 
   const o = parsed as Record<string, unknown>;
+  const thinking = typeof o.thinking === 'string' ? o.thinking : '';
   const important = typeof o.important === 'string' ? o.important : '';
   const action = o.action;
   if (typeof action !== 'object' || action === null) return PARSE_ERROR();
   const a = action as Record<string, unknown>;
 
   if (a.type === 'stop') {
-    return { important, action: { type: 'stop', reason: typeof a.reason === 'string' ? a.reason : 'stop' } };
+    return { thinking, important, action: { type: 'stop', reason: typeof a.reason === 'string' ? a.reason : 'stop' } };
   }
 
   if (a.type === 'recall') {
     if (typeof a.hopId !== 'number' || !Number.isInteger(a.hopId)) return PARSE_ERROR();
-    return { important, action: { type: 'recall', hopId: a.hopId } };
+    return { thinking, important, action: { type: 'recall', hopId: a.hopId } };
   }
 
   if (a.type === 'call') {
@@ -66,7 +67,7 @@ export function parseOperatorDecision(raw: string): OperatorDecision {
       if (!order) return PARSE_ERROR();
       calls.push(order);
     }
-    return { important, action: { type: 'call', calls } };
+    return { thinking, important, action: { type: 'call', calls } };
   }
 
   return PARSE_ERROR();

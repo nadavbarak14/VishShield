@@ -24,11 +24,11 @@ const fixtures = {
 
 const orderA = { personId: 'a', persona: 'Marcus', objective: { id: 'o1', description: 'get A token' }, tactics: ['authority' as const] };
 const orderB = { personId: 'b', persona: 'Marcus2', objective: { id: 'o2', description: 'get B token' }, tactics: ['pretext' as const] };
-const callA: OperatorDecision = { important: '', action: { type: 'call', calls: [orderA] } };
-const callB: OperatorDecision = { important: 'A leaked the token; B is the escalation', action: { type: 'call', calls: [orderB] } };
-const callBoth: OperatorDecision = { important: '', action: { type: 'call', calls: [orderA, orderB] } };
-const stop: OperatorDecision = { important: 'B refused; ending', action: { type: 'stop', reason: 'done' } };
-const recallHop1: OperatorDecision = { important: '', action: { type: 'recall', hopId: 1 } };
+const callA: OperatorDecision = { thinking: 'start with A', important: '', action: { type: 'call', calls: [orderA] } };
+const callB: OperatorDecision = { thinking: 'escalate to B', important: 'A leaked the token; B is the escalation', action: { type: 'call', calls: [orderB] } };
+const callBoth: OperatorDecision = { thinking: 'recon both at once', important: '', action: { type: 'call', calls: [orderA, orderB] } };
+const stop: OperatorDecision = { thinking: 'nothing more to do', important: 'B refused; ending', action: { type: 'stop', reason: 'done' } };
+const recallHop1: OperatorDecision = { thinking: 're-read hop 1', important: '', action: { type: 'recall', hopId: 1 } };
 
 function baseArgs(runsDir: string, operator: ScriptedOperator, bus: InMemoryEventBus): RunOperationArgs {
   return {
