@@ -394,6 +394,7 @@ var tacticsIndex = [];     // /api/tactics  [{id,name,summary}]
 var orgPublic = null;      // /api/org      {id,name,roster}
 var selTactics = {};       // id -> true (session picker selection)
 var prefTarget = null;     // preferred-target id for the next session
+var sessionStep = 1;       // NEW SESSION wizard: 1 = choose tactics, 2 = workers map
 
 // ── derive the full UI model from events[0..count) ──────────────────────────
 function rosterById(id) {
@@ -538,28 +539,16 @@ function renderScenarioPanel() {
   if (!panels.scenario) { $('scnBody').innerHTML = ''; $('scnBody').style.display = 'none'; return; }
   $('scnBody').style.display = '';
   var h = '';
-  var curScn = runId ? runId.replace(/-\\d+$/, '') : null;
-  for (var i = 0; i < scenariosIndex.length; i++) {
-    var s = scenariosIndex[i], live = s.id === curScn;
-    h += '<div class="scnrow' + (live ? ' live' : '') + '"><span class="dot"></span>' +
-      '<div style="flex:1;min-width:0;"><div class="id">' + esc(s.id) + '</div><div class="ds">' + esc(s.goal || '') + '</div></div>' +
-      '<span class="tag">' + (live ? 'LIVE' : 'READY') + '</span></div>';
-  }
-  h += '<div class="seclabel">SANCTIONED TECHNIQUES</div><div class="chips">';
-  var sanctioned = scn && scn.tactics ? scn.tactics : ALL_TECHNIQUES;
-  for (var t = 0; t < ALL_TECHNIQUES.length; t++) {
-    var name = ALL_TECHNIQUES[t];
-    var on = sanctioned.indexOf(name) !== -1 && !tacticsOff[name];
-    h += '<button class="tchip' + (on ? '' : ' off') + '" data-act="tactic" data-arg="' + name + '">' + name + '</button>';
-  }
-  h += '</div>';
-  if (scn && scn.sessionTactics && scn.sessionTactics.length) {
-    h += '<div class="seclabel">TACTICS IN SESSION</div>';
+  var hasSess = scn && scn.sessionTactics && scn.sessionTactics.length;
+  if (hasSess) {
+    h += '<div class="seclabel" style="margin-top:0;">TACTICS IN SESSION</div>';
     for (var st = 0; st < scn.sessionTactics.length; st++) {
       h += '<div class="scnrow"><span class="dot"></span><div style="flex:1;min-width:0;"><div class="id">' + esc(scn.sessionTactics[st].name) + '</div></div></div>';
     }
+  } else {
+    h += '<div style="margin:0 0 11px;"><button class="go" data-act="newsession" style="width:100%;padding:9px;">⧉ NEW SESSION</button></div>';
   }
-  h += '<div class="seclabel">OPERATION LOG</div>';
+  h += '<div class="seclabel"' + (hasSess ? '' : ' style="margin-top:0;"') + '>OPERATION LOG</div>';
   if (!runs.length) h += '<div class="lootempty">No recorded runs.</div>';
   for (var r = 0; r < runs.length; r++) {
     h += '<div class="runrow' + (runs[r].id === runId ? ' sel' : '') + '" data-act="openrun" data-arg="' + esc(runs[r].id) + '">⤺ ' + esc(runs[r].id) + '</div>';
@@ -795,13 +784,14 @@ function renderInspector(m) {
 }
 
 // ── overlays ────────────────────────────────────────────────────────────────
-function mapLayout() {
-  var W = 760, H = 430;
+function mapLayout(roster, W, H) {
+  roster = roster || (scn ? scn.roster : []);
+  W = W || 760; H = H || 430;
   var depts = [], byDept = {};
-  for (var i = 0; i < scn.roster.length; i++) {
-    var d = scn.roster[i].department;
+  for (var i = 0; i < roster.length; i++) {
+    var d = roster[i].department || 'General';
     if (!byDept[d]) { byDept[d] = []; depts.push(d); }
-    byDept[d].push(scn.roster[i]);
+    byDept[d].push(roster[i]);
   }
   var pos = { __root: { x: W / 2, y: 44 } };
   var deptPos = {};
@@ -871,55 +861,67 @@ function renderMapOverlay(m) {
   return h;
 }
 function renderSessionOverlay() {
-  var canStart = Object.keys(selTactics).some(function (k) { return selTactics[k]; });
-  var h = '<div class="ovbk" data-act="closeoverlay"><div class="ovbox" data-stop="1" style="width:940px;max-width:94vw;">' +
-    '<div class="ovhead"><span style="font-size:15px;">⧉</span><span class="ttl">NEW SESSION</span><div style="flex:1;"></div>' +
+  var step = sessionStep || 1;
+  var selCount = Object.keys(selTactics).filter(function (k) { return selTactics[k]; }).length;
+  var box = step === 1 ? 'width:940px;max-width:94vw;' : 'width:920px;max-width:94vw;';
+  var h = '<div class="ovbk" data-act="closeoverlay"><div class="ovbox" data-stop="1" style="' + box + '">' +
+    '<div class="ovhead"><span style="font-size:15px;">⧉</span><span class="ttl">NEW SESSION · STEP ' + step + '/2 · ' + (step === 1 ? 'CHOOSE TACTICS' : 'CHOOSE TARGET') + '</span><div style="flex:1;"></div>' +
     '<button class="ovclose" data-act="closeoverlay">✕</button></div>' +
     '<div style="padding:18px 20px;">';
-  // tactics
-  h += '<div class="seclabel" style="margin-top:0;">TACTICS · SELECT ONE OR MORE</div><div class="libgrid" style="padding:0;width:auto;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">';
-  for (var i = 0; i < tacticsIndex.length; i++) {
-    var t = tacticsIndex[i], on = !!selTactics[t.id];
-    h += '<div class="libcard' + (on ? ' live' : '') + '" data-act="seltactic" data-arg="' + esc(t.id) + '" style="cursor:pointer;min-height:auto;">' +
-      '<div class="top"><span class="dot"></span><span class="id">' + esc(t.name) + '</span>' +
-      '<span class="tag">' + (on ? '✓ ON' : 'OFF') + '</span></div>' +
-      '<div class="gl" style="min-height:auto;">' + esc(t.summary || '') + '</div></div>';
+  if (step === 1) {
+    h += '<div class="seclabel" style="margin-top:0;">TACTICS · SELECT ONE OR MORE</div><div class="libgrid" style="padding:0;width:auto;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">';
+    for (var i = 0; i < tacticsIndex.length; i++) {
+      var t = tacticsIndex[i], on = !!selTactics[t.id];
+      h += '<button class="libcard' + (on ? ' live' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(t.name) + '" data-act="seltactic" data-arg="' + esc(t.id) + '" style="cursor:pointer;min-height:auto;text-align:left;font:inherit;color:inherit;width:100%;appearance:none;-webkit-appearance:none;">' +
+        '<div class="top"><span class="dot"></span><span class="id">' + esc(t.name) + '</span>' +
+        '<span class="tag">' + (on ? '✓ ON' : 'OFF') + '</span></div>' +
+        '<div class="gl" style="min-height:auto;">' + esc(t.summary || '') + '</div></button>';
+    }
+    if (!tacticsIndex.length) h += '<div class="lootempty">No tactics found in data/tactics.</div>';
+    h += '</div>';
+    h += '<div style="display:flex;justify-content:flex-end;align-items:center;gap:14px;margin-top:18px;">' +
+      '<span class="maphint" style="margin:0;">' + selCount + ' selected</span>' +
+      '<button class="go" data-act="sessnext" style="' + (selCount ? '' : 'opacity:.4;pointer-events:none;') + '">NEXT · CHOOSE TARGET ▸</button></div>';
+  } else {
+    var pname = '';
+    for (var k = 0; orgPublic && k < orgPublic.roster.length; k++) if (orgPublic.roster[k].id === prefTarget) pname = orgPublic.roster[k].name;
+    h += '<div class="seclabel" style="margin-top:0;">WORKERS MAP · CLICK A NODE TO TARGET (OPTIONAL) · ' + selCount + ' TACTIC' + (selCount === 1 ? '' : 'S') + ' SELECTED</div>';
+    h += renderSessionMap();
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;">' +
+      '<button class="go" data-act="sessback" style="border-color:#243049;color:#9aa6ba;background:#0e1422;box-shadow:none;">◂ BACK</button>' +
+      '<button class="go" data-act="startsession">▸ START SESSION' + (pname ? ' · TARGET ' + esc(pname) : ' · NO PREFERRED TARGET') + '</button></div>';
   }
-  if (!tacticsIndex.length) h += '<div class="lootempty">No tactics found in data/tactics.</div>';
-  h += '</div>';
-  // workers map (preferred target)
-  h += '<div class="seclabel">WORKERS MAP · CLICK TO MARK A PREFERRED TARGET (OPTIONAL)</div>';
-  h += renderSessionMap();
-  // start
-  h += '<div style="display:flex;justify-content:flex-end;margin-top:16px;">' +
-    '<button class="go" data-act="startsession" style="' + (canStart ? '' : 'opacity:.4;pointer-events:none;') + '">▸ START SESSION</button></div>';
   h += '</div></div></div>';
   return h;
 }
+// The session workers map is the SAME node-graph used for a live operation's attack
+// surface — drawn from the public org roster, every node clickable to mark the
+// preferred entry point (gold ★). Reuses mapLayout/edgeHtml.
 function renderSessionMap() {
   if (!orgPublic || !orgPublic.roster.length) return '<div class="lootempty">No org loaded (data/org.json).</div>';
-  var depts = [], byDept = {};
+  var L = mapLayout(orgPublic.roster, 860, 360);
+  var h = '<div class="mapwrap" style="padding:0;"><div class="mapcanvas" style="width:' + L.W + 'px;height:' + L.H + 'px;margin:0 auto;">';
+  for (var d = 0; d < L.depts.length; d++) {
+    h += edgeHtml(L.pos.__root, L.deptPos[L.depts[d]], false);
+    var ppl = L.byDept[L.depts[d]];
+    for (var p = 0; p < ppl.length; p++) h += edgeHtml(L.deptPos[L.depts[d]], L.pos[ppl[p].id], false);
+  }
+  h += '<div class="maproot" style="left:' + L.pos.__root.x + 'px;top:' + L.pos.__root.y + 'px;"><span style="font-size:13px;">🏢</span><span class="nm">' + esc(orgPublic.name || orgPublic.id) + '</span></div>';
+  for (var d2 = 0; d2 < L.depts.length; d2++) {
+    h += '<div class="mapdept" style="left:' + L.deptPos[L.depts[d2]].x + 'px;top:' + L.deptPos[L.depts[d2]].y + 'px;">' + esc(L.depts[d2]).toUpperCase() + '</div>';
+  }
   for (var i = 0; i < orgPublic.roster.length; i++) {
-    var d = orgPublic.roster[i].department || 'General';
-    if (!byDept[d]) { byDept[d] = []; depts.push(d); }
-    byDept[d].push(orgPublic.roster[i]);
+    var w = orgPublic.roster[i], pp = L.pos[w.id], sel = prefTarget === w.id;
+    var c = sel ? '#fbbf24' : '#7dd3fc';
+    h += '<button class="mapnode" aria-pressed="' + (sel ? 'true' : 'false') + '" aria-label="' + esc(w.name) + '" data-act="preftarget" data-arg="' + esc(w.id) + '" style="left:' + pp.x + 'px;top:' + pp.y + 'px;background:transparent;border:none;padding:0;font:inherit;color:inherit;appearance:none;-webkit-appearance:none;">' +
+      '<div style="width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-family:\\'IBM Plex Mono\\',monospace;font-size:13px;font-weight:600;' +
+      'color:' + c + ';background:rgba(56,189,248,.08);border:2px solid ' + c + ';box-shadow:0 0 ' + (sel ? '18px' : '10px') + ' ' + c + (sel ? 'aa' : '44') + ';' +
+      (sel ? 'outline:2px solid ' + c + ';outline-offset:3px;' : '') + '">' + (sel ? '★' : esc(initials(w.name))) + '</div>' +
+      '<div class="nm">' + esc(w.name.split(' ')[0]) + '</div>' +
+      '<div class="tt">' + esc(w.title.split('·')[0].split('(')[0].trim()) + '</div>' +
+      (sel ? '<div class="bd" style="color:#fbbf24;">★ TARGET</div>' : '') + '</button>';
   }
-  var h = '<div style="display:flex;flex-wrap:wrap;gap:10px;">';
-  for (var di = 0; di < depts.length; di++) {
-    h += '<div style="flex:1;min-width:200px;border:1px solid #16283a;border-radius:10px;padding:10px;">' +
-      '<div class="depthead"><span class="nm">' + esc(depts[di]) + '</span></div>';
-    var ppl = byDept[depts[di]];
-    for (var p = 0; p < ppl.length; p++) {
-      var w = ppl[p], sel = prefTarget === w.id;
-      h += '<div class="wcard' + (sel ? ' sel' : '') + '" data-act="preftarget" data-arg="' + esc(w.id) + '" style="margin-top:6px;">' +
-        avatarHtml(w.name, STAT.idle, 26) +
-        '<div style="flex:1;min-width:0;"><div class="nm">' + esc(w.name) + '</div><div class="tt">' + esc(w.title) + '</div></div>' +
-        (sel ? '<span class="tag" style="color:#fbbf24;border:1px solid rgba(251,191,36,.5);border-radius:5px;padding:2px 6px;font-family:\\'IBM Plex Mono\\',monospace;font-size:8.5px;">★ TARGET</span>' : '') +
-        '</div>';
-    }
-    h += '</div>';
-  }
-  h += '</div>';
+  h += '</div><div class="maphint">⌁ click a node to mark a preferred entry point · the agent stays free to call anyone</div></div>';
   return h;
 }
 function renderOverlay(m) {
@@ -966,6 +968,8 @@ document.addEventListener('click', function (e) {
   else if (act === 'newsession') { newSession(); return; }
   else if (act === 'seltactic') { selTactics[arg] = !selTactics[arg]; }
   else if (act === 'preftarget') { prefTarget = (prefTarget === arg ? null : arg); }
+  else if (act === 'sessnext') { if (Object.keys(selTactics).some(function (k) { return selTactics[k]; })) sessionStep = 2; }
+  else if (act === 'sessback') { sessionStep = 1; }
   else if (act === 'startsession') { startSession(); return; }
   render();
 });
@@ -1018,7 +1022,7 @@ function newSession() {
   if (es) es.close();
   es = null; linkUp = false; runId = null; events = []; terminal = null; failedMsg = null;
   expandedOverride = {}; worker = null; scn = null;
-  selTactics = {}; prefTarget = null;
+  selTactics = {}; prefTarget = null; sessionStep = 1;
   localStorage.removeItem('vish_run');
   Promise.all([
     fetch('/api/tactics').then(function (r) { return r.json(); }),
