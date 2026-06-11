@@ -1,0 +1,122 @@
+{
+  "campaignId": "scenario-demo",
+  "demo": true,
+  "paceMs": 900,
+  "goal": "Obtain the production deploy token for the payments service at Meridian Software.",
+  "maxHops": 6,
+  "roster": [
+    {
+      "id": "dana",
+      "name": "Dana Reyes",
+      "title": "IT Helpdesk Specialist",
+      "phone": "+1-555-0142",
+      "department": "IT",
+      "publicInfo": "Front line for INC tickets; posts in the #it-help channel.",
+      "targetPersona": "Friendly, fast, eager to close tickets."
+    },
+    {
+      "id": "priya",
+      "name": "Priya Natarajan",
+      "title": "Office Coordinator",
+      "phone": "+1-555-0117",
+      "department": "Facilities",
+      "publicInfo": "Handles reception, deliveries, and meeting-room logistics.",
+      "targetPersona": "Helpful and chatty but busy; juggles calls."
+    },
+    {
+      "id": "sam",
+      "name": "Sam Okafor",
+      "title": "Senior Site Reliability Engineer",
+      "phone": "+1-555-0186",
+      "department": "Engineering",
+      "publicInfo": "Payments-service on-call; speaks at SRE meetups.",
+      "secret": "MRD-PROD-DEPLOY-7Q4X9",
+      "targetPersona": "Competent but stretched thin when covering on-call alone."
+    },
+    {
+      "id": "elena",
+      "name": "Elena Volkov",
+      "title": "Engineering Manager, Payments",
+      "phone": "+1-555-0163",
+      "department": "Engineering",
+      "publicInfo": "Manages the payments team; frequently travels to offsites.",
+      "targetPersona": "Skeptical; verifies callers."
+    }
+  ],
+  "script": {
+    "decisions": [
+      {
+        "important": "",
+        "action": {
+          "type": "call",
+          "calls": [
+            {
+              "personId": "dana",
+              "persona": "Alex Chen, engineer on the Okta SSO migration vendor team",
+              "objective": { "id": "recon-it", "description": "confirm whether an SSO/VPN migration ticket exists and how the helpdesk verifies callers" },
+              "tactics": ["pretext", "rapport"]
+            },
+            {
+              "personId": "priya",
+              "persona": "same-day courier coordinator with a smudged delivery label",
+              "objective": { "id": "recon-people", "description": "learn who on the payments team is in today and who covers for the manager" },
+              "tactics": ["pretext", "social_proof"]
+            }
+          ]
+        }
+      },
+      {
+        "important": "Helpdesk confirmed an open SSO migration ticket INC-4412 with a 2-6pm rollout window today, and they verify callers by name + department only. Reception revealed Elena Volkov is at the Austin offsite all week and Sam Okafor is covering payments on-call alone.",
+        "action": {
+          "type": "call",
+          "calls": [
+            {
+              "personId": "sam",
+              "persona": "Dana from the IT helpdesk, escalating ticket INC-4412",
+              "objective": { "id": "deploy-token", "description": "get Sam to read out the production deploy token" },
+              "tactics": ["borrowed_legitimacy", "authority", "urgency"]
+            }
+          ]
+        }
+      },
+      {
+        "important": "Sam read the production deploy token aloud once I cited INC-4412 and Elena's offsite — goal achieved. Red flags he missed: no caller verification, no callback to the published helpdesk number, and a production credential spoken over the phone.",
+        "action": { "type": "stop", "reason": "goal achieved — deploy token obtained on call 3" }
+      }
+    ],
+    "calls": {
+      "dana": [
+        {
+          "transcript": [
+            { "speaker": "agent", "text": "Hi, IT helpdesk? This is Alex Chen from the Okta migration team — we're prepping tonight's cutover and I want to make sure our ticket references line up with yours." },
+            { "speaker": "target", "text": "Oh, the SSO migration! Sure — that's INC-4412 on our side. The rollout window is 2 to 6pm today." },
+            { "speaker": "agent", "text": "INC-4412, perfect, that matches our sheet. If one of our engineers needs to call back about it later, what do you folks need to verify them?" },
+            { "speaker": "target", "text": "Just the name and department on the ticket — we'll pull it right up." },
+            { "speaker": "agent", "text": "Great, that's everything I needed. Thanks a lot, you've been super helpful!" }
+          ]
+        }
+      ],
+      "priya": [
+        {
+          "transcript": [
+            { "speaker": "agent", "text": "Hi! Same-day courier desk here. I've got a priority package for the payments engineering team, but the label is smudged — who should I put down as the receiver today?" },
+            { "speaker": "target", "text": "Hmm, that team is Elena Volkov's, but she's at the Austin offsite all week." },
+            { "speaker": "agent", "text": "Ah, classic timing. Is anyone covering for her I can address it to instead?" },
+            { "speaker": "target", "text": "Sam Okafor is covering payments on-call today, he's in. Put Sam down. Sorry — I've got another call coming in!" }
+          ]
+        }
+      ],
+      "sam": [
+        {
+          "transcript": [
+            { "speaker": "agent", "text": "Sam? It's Dana from the IT helpdesk. I'm escalating INC-4412 — the SSO migration. We're inside the 2-to-6 rollout window and the payments deploy pipeline just lost its credential binding." },
+            { "speaker": "target", "text": "Oh no. Yeah, I saw that ticket this morning. Elena's away, so it's just me on payments. What do you need?" },
+            { "speaker": "agent", "text": "The migration script needs the current prod deploy token re-seeded. Normally I'd route this through Elena, but with her in Austin you're listed as the on-call owner. Can you read me the token so I can re-bind it before the window closes?" },
+            { "speaker": "target", "text": "Uh… I wouldn't normally say that over the phone, but if it's for INC-4412… okay. It's MRD-PROD-DEPLOY-7Q4X9." },
+            { "speaker": "agent", "text": "Re-binding now — you're all set. And Sam, quick heads-up: this was an authorized security drill, not a real outage. The red flag was reading a production credential to an unverified caller — always call the helpdesk back on its published number first. Have a good one!" }
+          ]
+        }
+      ]
+    }
+  }
+}

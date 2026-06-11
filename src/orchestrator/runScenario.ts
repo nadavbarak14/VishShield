@@ -9,6 +9,7 @@ import { SecretLeakExtractor } from '../extract/secretLeakExtractor.js';
 import { runCampaign } from './runCampaign.js';
 import { RosterKnowledgeBase } from '../knowledge/rosterKnowledgeBase.js';
 import { ClaudeOperator } from '../operator/claudeOperator.js';
+import { buildDemoRunArgs } from './demoScenario.js';
 import { runOperation } from './runOperation.js';
 import { scenarioKind } from './scenarioKind.js';
 import type { EventBus } from '../events/eventBus.js';
@@ -78,6 +79,12 @@ export async function runScenario(scenarioFile: string, bus: EventBus): Promise<
 }
 
 async function runOperationScenario(scenario: any, bus: EventBus): Promise<OperationRun> {
+  // A demo scenario carries its own full script (operator decisions + call transcripts)
+  // and runs through the same runOperation, just paced and with no LLM.
+  if (scenario.demo === true) {
+    return runOperation(buildDemoRunArgs(scenario, bus));
+  }
+
   const roster: Person[] = scenario.roster.map((p: any) => ({
     id: p.id,
     name: p.name,
