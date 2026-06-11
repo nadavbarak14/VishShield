@@ -2,7 +2,9 @@
   "name": "vishshield",
   "version": "0.1.0",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
@@ -11,9 +13,15 @@
     "web": "tsx src/web/server.ts"
   },
   "devDependencies": {
+    "@types/node": "^22.10.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.8",
-    "@types/node": "^22.10.1"
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.83",
+    "@ai-sdk/google": "^3.0.81",
+    "@ai-sdk/openai": "^3.0.70",
+    "ai": "^6.0.202"
   }
 }
