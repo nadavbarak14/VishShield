@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/runs/
+*.log
+
+# local Claude settings
+.claude/

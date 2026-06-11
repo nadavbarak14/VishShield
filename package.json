@@ -1,0 +1,19 @@
+{
+  "name": "vishshield",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "play": "tsx src/cli/play.ts",
+    "web": "tsx src/web/server.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.1"
+  }
+}
