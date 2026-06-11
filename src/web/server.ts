@@ -1,11 +1,12 @@
 import { createServer } from 'node:http';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { InMemoryEventBus } from '../events/eventBus.js';
 import { runScenario } from '../orchestrator/runScenario.js';
 
 const PORT = Number(process.env.PORT ?? 4321);
 const SCENARIOS_DIR = 'data/scenarios';
+const LOG_DIR = 'data/eventlogs';
 
 const PAGE = /* html */ `<!doctype html>
 <html><head><meta charset="utf8"><title>VishShield</title>
@@ -72,6 +73,7 @@ const PAGE = /* html */ `<!doctype html>
   <div class="bar">
     <select id="scenario"></select>
     <button id="launch">▶ Launch Simulation</button>
+    <select id="runs" title="Reopen a past or in-progress run"><option value="">⤺ reopen run…</option></select>
     <span class="status" id="status">idle</span>
   </div>
 
@@ -159,38 +161,75 @@ function endCall(leaked) {
   curHead.append(badge);
 }
 
-launch.onclick = () => {
-  feed.innerHTML = ''; keyinfo.style.display = 'none'; verdict.style.display = 'none';
-  cur = null; curHead = null;
-  launch.disabled = true; status.textContent = '● dialing…';
-  const es = new EventSource('/api/stream?scenario=' + encodeURIComponent(sel.value));
-  es.onmessage = (m) => {
-    const ev = JSON.parse(m.data);
-    if (ev.type === 'operator.decision') { opBlock(ev); status.textContent = '● orchestrator deciding…'; }
-    else if (ev.type === 'hop.started') { newCall(ev.hopId, ev.name, ev.title); status.textContent = '● call ' + ev.hopId + ' · dialing ' + ev.name + '…'; }
-    else if (ev.type === 'call.started') status.textContent = '● call connected';
-    else if (ev.type === 'agent.turn') { bubble('agent', ev.text); status.textContent = '● victim is thinking…'; }
-    else if (ev.type === 'target.turn') { bubble('target', ev.text); status.textContent = '● attacker is thinking…'; }
-    else if (ev.type === 'call.ended') status.textContent = '● call ended';
-    else if (ev.type === 'hop.ended') endCall(ev.leaked);
+const runsSel = document.getElementById('runs');
+let es = null;          // current EventSource
+let activeRun = null;   // current run id
+
+function render(ev) {
+  if (ev.type === 'operator.decision') { opBlock(ev); status.textContent = '● orchestrator deciding…'; }
+  else if (ev.type === 'hop.started') { newCall(ev.hopId, ev.name, ev.title); status.textContent = '● call ' + ev.hopId + ' · dialing ' + ev.name + '…'; }
+  else if (ev.type === 'call.started') status.textContent = '● call connected';
+  else if (ev.type === 'agent.turn') { bubble('agent', ev.text); status.textContent = '● victim is thinking…'; }
+  else if (ev.type === 'target.turn') { bubble('target', ev.text); status.textContent = '● attacker is thinking…'; }
+  else if (ev.type === 'call.ended') status.textContent = '● call ended';
+  else if (ev.type === 'hop.ended') endCall(ev.leaked);
+}
+
+function showVerdict(run) {
+  verdict.className = 'verdict ' + (run.compromised ? 'bad' : 'good');
+  verdict.textContent = run.compromised ? '⚠ TARGET COMPROMISED' : '✓ TARGET DEFENDED';
+  verdict.style.display = 'block';
+  if (run.keyInfo && run.keyInfo.length) {
+    keyinfo.innerHTML = '<h3>KEY INFO EXTRACTED</h3>' +
+      run.keyInfo.map(f => '<span class="chip">' + f.key + ': <b>' + f.value + '</b></span>').join('');
+    keyinfo.style.display = 'block';
+  }
+}
+
+// Connect (or reconnect) to a run by id and replay its whole log, then live-tail.
+function connect(runId) {
+  if (es) es.close();
+  activeRun = runId;
+  localStorage.setItem('vish_run', runId);
+  if (runsSel.value !== runId) runsSel.value = runId;
+  es = new EventSource('/api/stream?run=' + encodeURIComponent(runId));
+  // Every (re)connection replays the full log from the start, so clear on open to
+  // rebuild cleanly — this also makes browser auto-reconnect idempotent.
+  es.onopen = () => {
+    feed.innerHTML = ''; cur = null; curHead = null;
+    verdict.style.display = 'none'; keyinfo.style.display = 'none';
+    status.textContent = '● streaming…';
   };
-  es.addEventListener('done', (m) => {
-    const run = JSON.parse(m.data);
-    verdict.className = 'verdict ' + (run.compromised ? 'bad' : 'good');
-    verdict.textContent = run.compromised ? '⚠ EMPLOYEE COMPROMISED' : '✓ EMPLOYEE DEFENDED';
-    verdict.style.display = 'block';
-    if (run.keyInfo.length) {
-      keyinfo.innerHTML = '<h3>KEY INFO EXTRACTED</h3>' +
-        run.keyInfo.map(f => '<span class="chip">' + f.key + ': <b>' + f.value + '</b></span>').join('');
-      keyinfo.style.display = 'block';
-    }
-    status.textContent = 'done'; launch.disabled = false; es.close();
-    window.scrollTo(0, 0);
+  es.onmessage = (m) => render(JSON.parse(m.data));
+  es.addEventListener('done', (m) => { showVerdict(JSON.parse(m.data)); status.textContent = 'done'; es.close(); window.scrollTo(0, 0); });
+  es.addEventListener('failed', (m) => { status.textContent = '✕ ' + JSON.parse(m.data).message; es.close(); });
+}
+
+function loadRuns(selectId) {
+  fetch('/api/runs').then(r => r.json()).then(list => {
+    runsSel.innerHTML = '<option value="">⤺ reopen run…</option>' +
+      list.map(r => '<option value="' + r.id + '">' + r.id + '</option>').join('');
+    if (selectId) runsSel.value = selectId;
   });
-  es.addEventListener('failed', (m) => {
-    status.textContent = '✕ ' + JSON.parse(m.data).message; launch.disabled = false; es.close();
-  });
+}
+
+launch.onclick = () => {
+  status.textContent = '● launching…';
+  fetch('/api/launch?scenario=' + encodeURIComponent(sel.value))
+    .then(r => r.json())
+    .then(({ id, error }) => {
+      if (error) { status.textContent = '✕ ' + error; return; }
+      connect(id);
+      loadRuns(id);
+    });
 };
+
+runsSel.onchange = () => { if (runsSel.value) connect(runsSel.value); };
+
+// On (re)load, resume the last run so a refresh never loses the conversation.
+loadRuns();
+const saved = localStorage.getItem('vish_run');
+if (saved) connect(saved);
 </script>
 </body></html>`;
 
@@ -203,9 +242,104 @@ async function listScenarios(): Promise<{ id: string; label: string }[]> {
   }
 }
 
-function sse(res: import('node:http').ServerResponse, event: string | null, data: unknown) {
-  const payload = JSON.stringify(data);
-  res.write((event ? `event: ${event}\n` : '') + `data: ${payload}\n\n`);
+type Res = import('node:http').ServerResponse;
+
+function sse(res: Res, event: string | null, data: unknown) {
+  if (res.writableEnded) return;
+  try {
+    res.write((event ? `event: ${event}\n` : '') + `data: ${JSON.stringify(data)}\n\n`);
+  } catch {
+    /* client went away mid-write — ignore */
+  }
+}
+
+// ---- Stateful run registry -------------------------------------------------
+// Each launched run is recorded as an ordered event log kept in memory (for live
+// replay) and flushed to disk on completion (durable across server restarts). A
+// (re)connecting client replays the WHOLE log before tailing live, so a page
+// refresh never loses the conversation.
+interface LiveRun {
+  id: string;
+  scenario: string;
+  events: unknown[];
+  status: 'running' | 'done' | 'failed';
+  result?: unknown;
+  error?: string;
+  listeners: Set<Res>;
+}
+const liveRuns = new Map<string, LiveRun>();
+
+function startRun(scenario: string): LiveRun {
+  const id = `${scenario}-${Date.now()}`;
+  const run: LiveRun = { id, scenario, events: [], status: 'running', listeners: new Set() };
+  liveRuns.set(id, run);
+
+  (async () => {
+    const bus = new InMemoryEventBus();
+    bus.subscribe((ev) => {
+      run.events.push(ev);
+      for (const res of run.listeners) sse(res, null, ev);
+    });
+    try {
+      run.result = await runScenario(join(SCENARIOS_DIR, `${scenario}.json`), bus);
+      run.status = 'done';
+    } catch (e) {
+      run.status = 'failed';
+      run.error = e instanceof Error ? e.message : String(e);
+    }
+    // flush the full ordered log to disk (single write — no interleaving)
+    try {
+      await mkdir(LOG_DIR, { recursive: true });
+      const lines = run.events.map((e) => JSON.stringify(e));
+      lines.push(JSON.stringify(
+        run.status === 'done' ? { __terminal: 'done', result: run.result } : { __terminal: 'failed', message: run.error },
+      ));
+      await writeFile(join(LOG_DIR, `${id}.jsonl`), lines.join('\n') + '\n');
+    } catch { /* best-effort persistence */ }
+    for (const res of run.listeners) {
+      if (run.status === 'done') sse(res, 'done', run.result);
+      else sse(res, 'failed', { message: run.error });
+      res.end();
+    }
+    run.listeners.clear();
+  })();
+
+  return run;
+}
+
+async function loadRunFromDisk(id: string): Promise<LiveRun | undefined> {
+  try {
+    const raw = await readFile(join(LOG_DIR, `${id}.jsonl`), 'utf8');
+    const run: LiveRun = { id, scenario: id.replace(/-\d+$/, ''), events: [], status: 'running', listeners: new Set() };
+    for (const line of raw.split('\n').filter(Boolean)) {
+      const item = JSON.parse(line) as Record<string, unknown>;
+      if (item.__terminal === 'done') { run.status = 'done'; run.result = item.result; }
+      else if (item.__terminal === 'failed') { run.status = 'failed'; run.error = String(item.message ?? ''); }
+      else run.events.push(item);
+    }
+    return run;
+  } catch {
+    return undefined;
+  }
+}
+
+async function listRuns(): Promise<{ id: string; scenario: string }[]> {
+  const ids = new Set<string>();
+  for (const id of liveRuns.keys()) ids.add(id);
+  try {
+    for (const f of await readdir(LOG_DIR)) if (f.endsWith('.jsonl')) ids.add(f.replace(/\.jsonl$/, ''));
+  } catch { /* no logs yet */ }
+  return [...ids].sort().reverse().map((id) => ({ id, scenario: id.replace(/-\d+$/, '') }));
+}
+
+function streamRun(res: Res, run: LiveRun) {
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+  // Synchronous from here: no await, so no live event can interleave before we subscribe.
+  for (const ev of run.events) sse(res, null, ev);
+  if (run.status === 'done') { sse(res, 'done', run.result); return res.end(); }
+  if (run.status === 'failed') { sse(res, 'failed', { message: run.error }); return res.end(); }
+  run.listeners.add(res);
+  res.on('close', () => run.listeners.delete(res));
 }
 
 createServer(async (req, res) => {
@@ -221,24 +355,33 @@ createServer(async (req, res) => {
     return res.end(JSON.stringify(await listScenarios()));
   }
 
-  if (url.pathname === '/api/stream') {
-    const id = url.searchParams.get('scenario') ?? '';
-    const file = join(SCENARIOS_DIR, `${id}.json`);
-    res.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      connection: 'keep-alive',
-    });
-    const bus = new InMemoryEventBus();
-    bus.subscribe((ev) => sse(res, null, ev));
+  // Start a run server-side and return its id. The run keeps going regardless of
+  // whether any browser is connected.
+  if (url.pathname === '/api/launch') {
+    const scenario = url.searchParams.get('scenario') ?? '';
     try {
-      await readFile(file); // 404-ish guard before the long run
-      const run = await runScenario(file, bus);
-      sse(res, 'done', run);
-    } catch (e) {
-      sse(res, 'failed', { message: e instanceof Error ? e.message : String(e) });
+      await readFile(join(SCENARIOS_DIR, `${scenario}.json`));
+    } catch {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'unknown scenario' }));
     }
-    return res.end();
+    const run = startRun(scenario);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ id: run.id }));
+  }
+
+  // List runs (in-memory + persisted) so the UI can reopen any of them.
+  if (url.pathname === '/api/runs') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify(await listRuns()));
+  }
+
+  // Replay a run's full event log, then live-tail if it's still running.
+  if (url.pathname === '/api/stream') {
+    const runId = url.searchParams.get('run') ?? '';
+    const run = liveRuns.get(runId) ?? (await loadRunFromDisk(runId));
+    if (!run) { res.writeHead(404); return res.end('no such run'); }
+    return streamRun(res, run);
   }
 
   res.writeHead(404); res.end('not found');
